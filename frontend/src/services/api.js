@@ -62,6 +62,11 @@ export const musicAPI = {
   update: (id, data) => api.put(`/music/${id}`, data),
 
   delete: (id) => api.delete(`/music/${id}`),
+
+  autoTag: (formData) =>
+    api.post('/music/auto-tag', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }),
 };
 
 /* ── Analysis ── */

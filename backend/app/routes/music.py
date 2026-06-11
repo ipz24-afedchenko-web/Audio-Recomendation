@@ -9,6 +9,7 @@ from app.models.user import User
 from app.models.music import Music
 from app.schemas.music import MusicResponse, MusicCreate, MusicUpdate, MusicWithFeatures
 from app.utils.auth import get_current_active_user
+from app.services.ai_tagger import get_ai_tagger
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 settings = get_settings()
@@ -226,3 +227,42 @@ def update_music(
     db.refresh(music)
 
     return music
+
+
+@router.post("/auto-tag")
+async def auto_tag_file(
+    filename: str = Form(...),
+    current_user: User = Depends(get_current_active_user)
+):
+    """
+    Auto-tag a music file using AI.
+
+    Uses Google Gemini API to parse the filename and MusicBrainz API to fetch metadata.
+
+    - **filename**: The filename to parse (with or without extension)
+
+    Returns metadata: artist, title, genre, album, year.
+
+    **Note**: Requires GEMINI_API_KEY environment variable to be set.
+    """
+    try:
+        tagger = get_ai_tagger()
+        metadata = tagger.auto_tag(filename)
+
+        return {
+            "success": True,
+            "metadata": metadata
+        }
+
+    except ValueError as e:
+        # Missing API key
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"AI tagging service not configured: {str(e)}"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Auto-tagging failed: {str(e)}"
+        )
+

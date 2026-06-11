@@ -13,6 +13,7 @@ export default function UploadPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
@@ -23,6 +24,38 @@ export default function UploadPage() {
         const name = selected.name.replace(/\.[^/.]+$/, '');
         setTitle(name);
       }
+    }
+  };
+
+  const handleAutoTag = async () => {
+    if (!file) {
+      setError('Please select a file first');
+      return;
+    }
+
+    setAiLoading(true);
+    setError('');
+
+    try {
+      const formData = new FormData();
+      formData.append('filename', file.name);
+
+      const res = await musicAPI.autoTag(formData);
+
+      if (res.data.success && res.data.metadata) {
+        const meta = res.data.metadata;
+        setTitle(meta.title || title);
+        setArtist(meta.artist || '');
+        setAlbum(meta.album || '');
+        setGenre(meta.genre || '');
+        setSuccess('✨ Metadata auto-filled successfully!');
+        setTimeout(() => setSuccess(''), 3000);
+      }
+    } catch (err) {
+      const msg = err.response?.data?.detail || 'AI tagging failed';
+      setError(msg);
+    } finally {
+      setAiLoading(false);
     }
   };
 
@@ -90,15 +123,28 @@ export default function UploadPage() {
 
           <div className="form-group">
             <label className="form-label" htmlFor="upload-title">Title *</label>
-            <input
-              id="upload-title"
-              className="form-input"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Track title"
-              required
-            />
+            <div className="flex gap-sm" style={{ alignItems: 'flex-start' }}>
+              <input
+                id="upload-title"
+                className="form-input"
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="Track title"
+                required
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleAutoTag}
+                disabled={aiLoading || !file}
+                title="Use AI to auto-fill metadata from filename"
+                style={{ whiteSpace: 'nowrap' }}
+              >
+                {aiLoading ? <><div className="spinner" /> Loading…</> : '✨ Auto-fill with AI'}
+              </button>
+            </div>
           </div>
 
           <div className="form-group">
