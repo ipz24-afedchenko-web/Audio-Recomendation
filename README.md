@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Audio-Based Music Recommender
 
 A web application that analyzes audio parameters and recommends similar music using machine learning.
@@ -36,17 +35,17 @@ Music_genre_classifier/
 
 ## Quick Start
 
-See `docs/DEPLOY.md` for deployment instructions.
+See `docs/DEPLOY.md` for deployment instructions (coming soon).
 
 ## Documentation
 
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) - System architecture
 - [DATABASE.md](docs/DATABASE.md) - Database schema
 - [API.md](docs/API.md) - API endpoints
-- [AUDIO_ANALYSIS.md](docs/AUDIO_ANALYSIS.md) - Audio analysis parameters
-- [ML_RECOMMENDER.md](docs/ML_RECOMMENDER.md) - Recommendation logic
-- [FRONTEND.md](docs/FRONTEND.md) - Frontend components
-- [DEPLOY.md](docs/DEPLOY.md) - Deployment guide
+- [AUDIO_ANALYSIS.md](docs/AUDIO_ANALYSIS.md) - Audio analysis parameters (coming soon)
+- [ML_RECOMMENDER.md](docs/ML_RECOMMENDER.md) - Recommendation logic (coming soon)
+- [FRONTEND.md](docs/FRONTEND.md) - Frontend components (coming soon)
+- [DEPLOY.md](docs/DEPLOY.md) - Deployment guide (coming soon)
 - [STATE.md](STATE.md) - Current project status
 
 ## Technology Stack
@@ -68,9 +67,68 @@ See `docs/DEPLOY.md` for deployment instructions.
 - Docker Compose
 - AWS/Heroku/Render ready
 
+## Development Setup
+
+### Prerequisites
+- Python 3.10+
+- Node.js 18+
+- PostgreSQL 15+
+
+### Backend Setup
+
+```bash
+cd backend
+
+# Create virtual environment
+python -m venv venv
+venv\Scripts\activate  # Windows
+source venv/bin/activate  # Linux/Mac
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Create .env file
+cp .env.example .env
+# Edit .env with your database credentials
+
+# Run migrations
+alembic upgrade head
+
+# Start server
+uvicorn app.main:app --reload
+```
+
+Backend API: http://localhost:8000  
+API Docs: http://localhost:8000/api/docs
+
+### Frontend Setup
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start dev server
+npm run dev
+```
+
+Frontend: http://localhost:5173
+
+## Current Status
+
+**Progress**: 43% (3 of 7 steps complete)
+
+- ✅ Step 1: Project setup
+- ✅ Step 2: Database models
+- ✅ Step 3: Backend API
+- 🔄 Step 4: Audio analysis (next)
+- ⏳ Step 5: ML recommender
+- ⏳ Step 6: Frontend
+- ⏳ Step 7: Deployment
+
+See [STATE.md](STATE.md) for detailed status.
+
 ## License
 
 MIT
-=======
-# Music_genre_classifier
->>>>>>> 7673073eadb93535840612205ed45948b6a53165
