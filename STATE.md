@@ -1,6 +1,6 @@
 # Project Status - Audio-Based Music Recommender
 
-**Last Updated**: 2026-06-11 16:55
+**Last Updated**: 2026-06-11 21:05
 
 ---
 
@@ -57,6 +57,61 @@
   - [x] GET /api/recommend/user/{user_id}
 - [x] Created docs/API.md with complete endpoint documentation
 
+### STEP 4: AUDIO ANALYSIS
+- [x] Created AudioAnalyzer service (backend/app/services/audio_analyzer.py)
+- [x] Implemented feature extraction:
+  - [x] Tempo (BPM) - librosa.beat.beat_track()
+  - [x] Key and mode detection - chromagram analysis
+  - [x] Loudness (dB) - RMS energy to dB
+  - [x] MFCCs (timbre) - 20 coefficients
+  - [x] Spectral centroid, bandwidth, rolloff
+  - [x] Energy - normalized RMS
+  - [x] Valence estimation - heuristic from mode/tempo/energy
+  - [x] Zero-crossing rate
+  - [x] Chroma STFT features
+- [x] Created feature normalization utilities (backend/app/utils/audio_utils.py)
+- [x] Updated /api/analyze endpoint with real librosa integration
+- [x] Created docs/AUDIO_ANALYSIS.md with complete feature documentation
+
+### STEP 5: ML RECOMMENDER
+- [x] Created MLRecommender service (backend/app/services/ml_recommender.py)
+- [x] Implemented K-means clustering for music grouping
+- [x] Implemented cosine similarity calculation
+- [x] Implemented Euclidean distance calculation
+- [x] Implemented cluster-aware cosine similarity (default algorithm)
+- [x] Implemented recommendation ranking algorithm
+- [x] Created GenreClassifier service (backend/app/services/genre_classifier.py)
+  - [x] Random Forest classifier with StandardScaler
+  - [x] Batch genre prediction for unlabelled tracks
+  - [x] Confidence scores and probability distribution
+- [x] Created model training script (backend/app/services/train_models.py)
+- [x] Model persistence via joblib (backend/models/)
+- [x] Updated /api/recommend endpoint with real ML logic
+- [x] Added POST /api/recommend/train endpoint
+- [x] Added GET /api/recommend/clusters endpoint
+- [x] Added POST /api/recommend/train-genre endpoint
+- [x] Added POST /api/recommend/predict-genre/{music_id} endpoint
+- [x] Created docs/ML_RECOMMENDER.md with complete documentation
+
+### STEP 6: FRONTEND
+- [x] Created entry point files (index.html, main.jsx, App.jsx)
+- [x] Created global CSS design system (index.css) — dark minimalist theme
+- [x] Created API service layer with axios interceptors (services/api.js)
+- [x] Created Auth context with JWT (utils/AuthContext.jsx)
+- [x] Created layout components:
+  - [x] Navbar with conditional auth links
+  - [x] ProtectedRoute with loading state
+- [x] Implemented authentication pages:
+  - [x] Login page with error handling
+  - [x] Register page with validation
+- [x] Implemented main pages:
+  - [x] Dashboard — music library grid with analyze/delete
+  - [x] Upload — file upload with metadata form
+  - [x] Analyze — audio features + Plotly radar/MFCC/chroma charts
+  - [x] Recommendations — track selector, algorithm choice, results list
+- [x] Installed dependencies and verified production build
+- [x] Created docs/FRONTEND.md with complete documentation
+
 ---
 
 ## 2. In Progress 🔄
@@ -67,45 +122,6 @@ None currently.
 
 ## 3. Not Started 📋
 
-### STEP 4: AUDIO ANALYSIS
-- [ ] Create AudioAnalyzer service using librosa
-- [ ] Implement feature extraction:
-  - [ ] Tempo (BPM)
-  - [ ] Key and mode detection
-  - [ ] Loudness (dB)
-  - [ ] MFCCs (timbre)
-  - [ ] Spectral centroid
-  - [ ] Energy
-  - [ ] Valence estimation
-- [ ] Create feature normalization utilities
-- [ ] Create docs/AUDIO_ANALYSIS.md
-
-### STEP 5: ML RECOMMENDER
-- [ ] Create MLRecommender service
-- [ ] Implement K-means clustering for music grouping
-- [ ] Implement cosine similarity calculation
-- [ ] Implement recommendation ranking algorithm
-- [ ] Create basic genre classifier (optional)
-- [ ] Create model training scripts
-- [ ] Create docs/ML_RECOMMENDER.md
-
-### STEP 6: FRONTEND
-- [ ] Create base layout components
-- [ ] Implement authentication pages:
-  - [ ] Login page
-  - [ ] Register page
-- [ ] Implement main pages:
-  - [ ] Dashboard with music library
-  - [ ] Upload page
-  - [ ] Analyze page with visualizations
-  - [ ] Recommendations page
-- [ ] Create API service layer (axios)
-- [ ] Create authentication context/hooks
-- [ ] Implement protected routes
-- [ ] Create audio feature visualizations (plotly)
-- [ ] Add CSS styling
-- [ ] Create docs/FRONTEND.md
-
 ### STEP 7: DEPLOYMENT
 - [ ] Create Dockerfile for backend
 - [ ] Create Dockerfile for frontend
@@ -114,50 +130,48 @@ None currently.
 - [ ] Write deployment instructions
 - [ ] Create docs/DEPLOY.md
 
+### STEP 8: AI METADATA EXTRACTION (Planned)
+- [ ] Integrate **Google Gemini API** (Free tier) to intelligently parse messy filenames into Artist and Title.
+- [ ] Integrate **MusicBrainz API** (100% Free, no key required) to fetch Genre, Album, and Year based on Artist/Title.
+- [ ] Create backend service `backend/app/services/ai_tagger.py` for API orchestration.
+- [ ] Add backend endpoint `POST /api/music/auto-tag` to process requests.
+- [ ] Update frontend `UploadPage.jsx` with an "✨ Auto-fill with AI" button.
+- [ ] Create `docs/AI_INTEGRATION.md` with implementation details.
+
 ---
 
 ## 4. Known Issues ⚠️
 
-None yet - project just started.
+None critical.
 
 ---
 
 ## 5. Next Steps 🎯
 
-**Immediate Priority**: Start STEP 4 - AUDIO ANALYSIS
+**Immediate Priority**: Start STEP 7 - DEPLOYMENT
 
-1. Create `backend/app/services/audio_analyzer.py` with librosa integration:
-   - Load audio file
-   - Extract tempo (BPM)
-   - Detect key and mode
-   - Calculate loudness
-   - Extract MFCCs (timbre)
-   - Calculate spectral features (centroid, bandwidth, rolloff)
-   - Estimate energy and valence
-   - Calculate zero-crossing rate
-   - Extract chroma features
-2. Update `/api/analyze/{music_id}` endpoint to use AudioAnalyzer
-3. Create feature normalization utilities
-4. Document all audio features in `docs/AUDIO_ANALYSIS.md`
+1. Create Dockerfile for backend
+2. Create Dockerfile for frontend
+3. Create docker-compose.yml
+4. Write deployment instructions
+5. Create docs/DEPLOY.md
 
-**Testing the current API**:
+**Future Priority**: Start STEP 8 - AI METADATA EXTRACTION
+1. Implement free AI APIs (Gemini + MusicBrainz) for automatic track tagging.
+
+**Testing the full stack**:
 ```bash
-# Navigate to backend
+# Start backend
 cd backend
-
-# Create .env file (copy from .env.example)
-copy .env.example .env
-# Edit .env with your PostgreSQL credentials
-
-# Run migrations
-alembic upgrade head
-
-# Start FastAPI server
+pip install -r requirements.txt
 uvicorn app.main:app --reload
 
-# API will be available at:
-# - http://localhost:8000
-# - Docs: http://localhost:8000/api/docs
+# Start frontend (in another terminal)
+cd frontend
+npm install
+npm run dev
+
+# Visit http://localhost:3000
 ```
 
 ---
@@ -170,13 +184,14 @@ uvicorn app.main:app --reload
 | Git Setup | ✅ Complete | 100% | Repository initialized |
 | Backend Dependencies | ✅ Complete | 100% | requirements.txt ready |
 | Frontend Dependencies | ✅ Complete | 100% | package.json ready |
-| Documentation | 🔄 In Progress | 60% | ARCHITECTURE, DATABASE, API docs done |
+| Documentation | 🔄 In Progress | 90% | All module docs done except DEPLOY |
 | Database Models | ✅ Complete | 100% | All 4 models + Alembic setup |
-| Backend API | ✅ Complete | 100% | All endpoints + JWT auth implemented |
-| Audio Analysis | 📋 Not Started | 0% | Awaiting librosa integration |
-| ML Recommender | 📋 Not Started | 0% | Awaiting implementation |
-| Frontend UI | 📋 Not Started | 0% | Awaiting implementation |
+| Backend API | ✅ Complete | 100% | All endpoints + JWT auth + ML endpoints |
+| Audio Analysis | ✅ Complete | 100% | librosa integration done |
+| ML Recommender | ✅ Complete | 100% | K-means + cosine similarity + genre classifier |
+| Frontend UI | ✅ Complete | 100% | React + Plotly + dark theme |
 | Deployment | 📋 Not Started | 0% | Awaiting implementation |
+| AI Auto-Tagging | 📋 Not Started | 0% | Planned feature for automatic metadata using free APIs |
 
 ---
 
@@ -234,18 +249,15 @@ npm install
 
 ## 9. For Next AI Model 🤖
 
-**Context**: This is a fresh project. Step 1 (Preparation) is complete. All structure and dependencies are ready.
+**Context**: Steps 1-6 are complete. Full stack is functional (Backend + Frontend). The database has been created and verified. A new feature request (STEP 8: AI Metadata Extraction) has been added to the backlog, requiring the use of strictly FREE APIs (like Gemini and MusicBrainz).
 
 **What to do next**:
 1. Read this STATE.md file
 2. Read docs/ARCHITECTURE.md to understand the system
-3. Start implementing STEP 2: DATABASE
-   - Create database models
-   - Set up Alembic migrations
-   - Document in DATABASE.md
-4. Follow the sequential steps: DATABASE → API → AUDIO → ML → FRONTEND → DEPLOY
-5. Always update STATE.md after completing tasks
-6. Always create/update relevant documentation in docs/
+3. Start implementing STEP 7: DEPLOYMENT or STEP 8: AI METADATA EXTRACTION based on user preference.
+   - For Step 8, strictly use free APIs like Google Gemini for parsing and MusicBrainz for database lookups.
+4. Always update STATE.md after completing tasks
+5. Always create/update relevant documentation in docs/
 
 **Important**: 
 - Test each module before moving to the next
