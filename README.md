@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Audio-Based Music Recommender
 
 A web application that analyzes audio parameters and recommends similar music using machine learning.
@@ -70,3 +71,6 @@ See `docs/DEPLOY.md` for deployment instructions.
 ## License
 
 MIT
+=======
+# Music_genre_classifier
+>>>>>>> 7673073eadb93535840612205ed45948b6a53165
