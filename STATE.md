@@ -264,7 +264,7 @@ cd ../frontend
 npm install
 
 # Database setup
-# Create PostgreSQL database named 'music_db'
+# Create PostgreSQL database named 'music_recommender_db'
 # Configure .env file in backend/
 ```
 

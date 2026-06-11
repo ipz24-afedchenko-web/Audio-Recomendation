@@ -255,7 +255,7 @@ backend/
 
 **Backend (.env)**:
 ```
-DATABASE_URL=postgresql://user:pass@localhost:5432/music_db
+DATABASE_URL=postgresql://user:pass@localhost:5432/music_recommender_db
 SECRET_KEY=<random-secret-key>
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=1440

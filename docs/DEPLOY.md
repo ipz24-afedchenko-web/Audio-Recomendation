@@ -87,7 +87,7 @@ Deploy backend and frontend separately with custom configurations.
    docker run -d \
      --name music-backend \
      -p 8000:8000 \
-     -e DATABASE_URL="postgresql://user:password@host:5432/music_db" \
+     -e DATABASE_URL="postgresql://user:password@host:5432/music_recommender_db" \
      -e SECRET_KEY="your-secret-key" \
      -v $(pwd)/uploads:/app/uploads \
      -v $(pwd)/models:/app/models \
@@ -130,7 +130,7 @@ Create `backend/.env` file:
 
 ```env
 # Database
-DATABASE_URL=postgresql://postgres:postgres@db:5432/music_db
+DATABASE_URL=postgresql://postgres:postgres@db:5432/music_recommender_db
 
 # JWT Authentication
 SECRET_KEY=change-this-to-a-secure-random-key-in-production
@@ -178,7 +178,7 @@ VITE_API_URL=https://your-backend-api.com
 
 4. **Configure environment variables**:
    ```bash
-   eb setenv DATABASE_URL="postgresql://user:pass@rds-endpoint:5432/music_db" \
+   eb setenv DATABASE_URL="postgresql://user:pass@rds-endpoint:5432/music_recommender_db" \
             SECRET_KEY="your-production-secret-key"
    ```
 
