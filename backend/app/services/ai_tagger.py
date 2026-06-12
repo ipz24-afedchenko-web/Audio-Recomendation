@@ -31,7 +31,7 @@ class AITagger:
             raise ValueError("GEMINI_API_KEY environment variable is required")
 
         self.gemini_client = genai.Client(api_key=self.gemini_api_key)
-        self.gemini_model = "gemini-2.0-flash-exp"  # Latest free tier model
+        self.gemini_model = "gemini-2.5-flash"  # Confirmed available model
 
         # Configure MusicBrainz
         musicbrainzngs.set_useragent(
@@ -164,7 +164,7 @@ Return only the artist and title."""
             result = musicbrainzngs.search_recordings(
                 artist=artist,
                 recording=title,
-                limit=limit
+                limit=limit,
             )
 
             if not result.get('recording-list'):
@@ -181,12 +181,33 @@ Return only the artist and title."""
                 "year": None
             }
 
-            # Extract genres from tags
+            # Extract genres from tags — sort by vote count (count attr), take top 3
             if 'tag-list' in best_match:
-                tags = [tag['name'] for tag in best_match['tag-list']]
-                if tags:
-                    # Take top 3 most relevant tags
-                    metadata["genre"] = ", ".join(tags[:3])
+                tags = best_match['tag-list']
+                # Sort by vote count descending (MusicBrainz returns count as string)
+                tags_sorted = sorted(
+                    tags,
+                    key=lambda t: int(t.get('count', 0)),
+                    reverse=True
+                )
+                tag_names = [t['name'] for t in tags_sorted if t.get('name')]
+                if tag_names:
+                    metadata["genre"] = ", ".join(tag_names[:3])
+
+            # Also check releases for genre tags if recording has none
+            if not metadata["genre"] and 'release-list' in best_match:
+                for release in best_match['release-list'][:3]:
+                    if 'tag-list' in release:
+                        tags = release['tag-list']
+                        tags_sorted = sorted(
+                            tags,
+                            key=lambda t: int(t.get('count', 0)),
+                            reverse=True
+                        )
+                        tag_names = [t['name'] for t in tags_sorted if t.get('name')]
+                        if tag_names:
+                            metadata["genre"] = ", ".join(tag_names[:3])
+                            break
 
             # Extract album and year
             if 'release-list' in best_match and best_match['release-list']:
@@ -194,13 +215,50 @@ Return only the artist and title."""
                 metadata["album"] = release.get('title')
                 if 'date' in release:
                     # Extract year from date (YYYY-MM-DD format)
-                    metadata["year"] = int(release['date'][:4])
+                    try:
+                        metadata["year"] = int(release['date'][:4])
+                    except (ValueError, IndexError):
+                        pass
 
             return metadata
 
         except Exception as e:
             # Log error but don't crash
             print(f"MusicBrainz API error: {e}")
+            return None
+
+    def fetch_genre_with_ai(self, artist: str, title: str) -> Optional[str]:
+        """
+        Use Gemini to predict the music genre based on artist and title.
+        Called as a fallback when MusicBrainz has no tags.
+
+        Returns:
+            Genre string (e.g. "rock, alternative") or None
+        """
+        try:
+            prompt = f"""What is the music genre of the song "{title}" by "{artist}"?
+Return only the genre name(s), comma-separated (e.g. "rock, alternative rock").
+Use standard genre names. Return at most 3 genres. No explanation."""
+
+            response = self.gemini_client.models.generate_content(
+                model=self.gemini_model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "object",
+                        "properties": {
+                            "genre": {"type": "string"}
+                        },
+                        "required": ["genre"]
+                    }
+                )
+            )
+            result = json.loads(response.text)
+            genre = result.get("genre", "").strip()
+            return genre if genre else None
+        except Exception as e:
+            print(f"Gemini genre prediction error: {e}")
             return None
 
     def _respect_rate_limit(self):
@@ -227,7 +285,7 @@ Return only the artist and title."""
         # Step 1: Parse filename
         parsed = self.parse_filename(filename)
 
-        # Step 2: Fetch metadata
+        # Step 2: Fetch metadata from MusicBrainz
         metadata = self.fetch_metadata(
             artist=parsed["artist"],
             title=parsed["title"]
@@ -235,13 +293,25 @@ Return only the artist and title."""
 
         # Step 3: Merge results
         if metadata:
+            # Step 4: If no genre from MusicBrainz, use Gemini as fallback
+            if not metadata.get("genre"):
+                ai_genre = self.fetch_genre_with_ai(
+                    artist=metadata.get("artist", parsed["artist"]),
+                    title=metadata.get("title", parsed["title"])
+                )
+                if ai_genre:
+                    metadata["genre"] = ai_genre
             return metadata
         else:
-            # Return parsed data even if MusicBrainz fails
+            # MusicBrainz found nothing — use Gemini for genre at minimum
+            ai_genre = self.fetch_genre_with_ai(
+                artist=parsed["artist"],
+                title=parsed["title"]
+            )
             return {
                 "artist": parsed["artist"],
                 "title": parsed["title"],
-                "genre": None,
+                "genre": ai_genre,
                 "album": None,
                 "year": None
             }
@@ -254,6 +324,6 @@ _tagger_instance: Optional[AITagger] = None
 def get_ai_tagger() -> AITagger:
     """Get or create the AI tagger singleton instance."""
     global _tagger_instance
-    if _tagger_instance is None:
+    if _tagger_instance is None or not os.getenv("GEMINI_API_KEY"):
         _tagger_instance = AITagger()
     return _tagger_instance

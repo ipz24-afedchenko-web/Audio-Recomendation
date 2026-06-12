@@ -5,7 +5,8 @@
       "Bash(git add *)",
       "Bash(git commit *)",
       "Bash(alembic init *)",
-      "WebSearch"
+      "WebSearch",
+      "PowerShell(docker-compose *)"
     ]
   }
 }

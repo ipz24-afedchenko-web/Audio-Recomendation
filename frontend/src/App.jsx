@@ -7,6 +7,7 @@ import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import UploadPage from './pages/UploadPage';
+import BulkUploadPage from './pages/BulkUploadPage';
 import AnalyzePage from './pages/AnalyzePage';
 import RecommendationsPage from './pages/RecommendationsPage';
 
@@ -36,6 +37,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <UploadPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/bulk-upload"
+                element={
+                  <ProtectedRoute>
+                    <BulkUploadPage />
                   </ProtectedRoute>
                 }
               />

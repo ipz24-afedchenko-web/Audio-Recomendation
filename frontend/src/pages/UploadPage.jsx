@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { musicAPI } from '../services/api';
 
@@ -14,6 +14,13 @@ export default function UploadPage() {
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(null); // null = checking
+
+  useEffect(() => {
+    musicAPI.aiStatus()
+      .then(res => setAiAvailable(res.data.available))
+      .catch(() => setAiAvailable(false));
+  }, []);
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
@@ -122,7 +129,32 @@ export default function UploadPage() {
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="upload-title">Title *</label>
+            <label className="form-label" htmlFor="upload-title">
+              Title *
+              {aiAvailable === true && (
+                <span style={{
+                  marginLeft: 8,
+                  fontSize: '0.7rem',
+                  background: 'rgba(16,185,129,0.15)',
+                  color: '#10b981',
+                  padding: '2px 7px',
+                  borderRadius: 99,
+                  fontWeight: 600,
+                  letterSpacing: '0.02em',
+                }}>✦ AI ready</span>
+              )}
+              {aiAvailable === false && (
+                <span style={{
+                  marginLeft: 8,
+                  fontSize: '0.7rem',
+                  background: 'rgba(156,163,175,0.15)',
+                  color: '#9ca3af',
+                  padding: '2px 7px',
+                  borderRadius: 99,
+                  fontWeight: 600,
+                }}>AI not configured</span>
+              )}
+            </label>
             <div className="flex gap-sm" style={{ alignItems: 'flex-start' }}>
               <input
                 id="upload-title"
@@ -138,8 +170,12 @@ export default function UploadPage() {
                 type="button"
                 className="btn btn-secondary"
                 onClick={handleAutoTag}
-                disabled={aiLoading || !file}
-                title="Use AI to auto-fill metadata from filename"
+                disabled={aiLoading || !file || aiAvailable === false}
+                title={
+                  aiAvailable === false
+                    ? 'AI service not configured (GEMINI_API_KEY missing)'
+                    : 'Use AI to auto-fill metadata from filename'
+                }
                 style={{ whiteSpace: 'nowrap' }}
               >
                 {aiLoading ? <><div className="spinner" /> Loading…</> : '✨ Auto-fill with AI'}
@@ -205,3 +241,4 @@ export default function UploadPage() {
     </>
   );
 }
+

@@ -67,6 +67,8 @@ export const musicAPI = {
     api.post('/music/auto-tag', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     }),
+
+  aiStatus: () => api.get('/music/ai-status'),
 };
 
 /* ── Analysis ── */

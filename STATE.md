@@ -99,14 +99,15 @@
 - [x] Created API service layer with axios interceptors (services/api.js)
 - [x] Created Auth context with JWT (utils/AuthContext.jsx)
 - [x] Created layout components:
-  - [x] Navbar with conditional auth links
+  - [x] Navbar with conditional auth links and Upload dropdown
   - [x] ProtectedRoute with loading state
 - [x] Implemented authentication pages:
   - [x] Login page with error handling
   - [x] Register page with validation
 - [x] Implemented main pages:
   - [x] Dashboard — music library grid with analyze/delete
-  - [x] Upload — file upload with metadata form
+  - [x] Upload — file upload with metadata form and AI auto-fill
+  - [x] Bulk Upload — drag-and-drop multi-file upload with batch AI processing
   - [x] Analyze — audio features + Plotly radar/MFCC/chroma charts
   - [x] Recommendations — track selector, algorithm choice, results list
 - [x] Installed dependencies and verified production build
@@ -137,18 +138,24 @@ None currently.
   - [x] Cost estimation for different platforms
 
 ### STEP 8: AI METADATA EXTRACTION
-- [x] Integrated **Google Gemini API** (gemini-2.0-flash-exp) for intelligent filename parsing
+- [x] Integrated **Google Gemini API** (gemini-2.5-flash) for intelligent filename parsing and genre fallback
 - [x] Integrated **MusicBrainz API** (100% free, no key required) for metadata fetching
 - [x] Created backend service `backend/app/services/ai_tagger.py`:
   - [x] AITagger class with Gemini client integration
   - [x] Filename parsing with fallback patterns
-  - [x] MusicBrainz metadata lookup with rate limiting (1 req/sec)
+  - [x] MusicBrainz metadata lookup with rate limiting (1 req/sec) and sorting tags by vote count
+  - [x] Gemini fallback for missing genres (`fetch_genre_with_ai`)
   - [x] Auto-tag workflow combining both APIs
-- [x] Added backend endpoint `POST /api/music/auto-tag` in routes/music.py
+- [x] Added backend endpoints:
+  - [x] `POST /api/music/auto-tag`
+  - [x] `GET /api/music/ai-status`
 - [x] Updated frontend `UploadPage.jsx`:
   - [x] Added "✨ Auto-fill with AI" button next to title field
-  - [x] Loading state and error handling
+  - [x] Added AI status badge
   - [x] Auto-populates artist, title, album, genre fields
+- [x] Added frontend `BulkUploadPage.jsx`:
+  - [x] Batch auto-tagging for multiple tracks sequentially
+  - [x] Auto-populates table with results
 - [x] Updated `requirements.txt` with new dependencies:
   - [x] google-genai==1.0.0
   - [x] musicbrainzngs==0.7.1

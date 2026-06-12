@@ -18,24 +18,25 @@ This feature allows users to click "✨ Auto-fill with AI" on the upload page an
 ## Architecture
 
 ```
-User uploads file → Gemini parses filename → MusicBrainz fetches metadata → Fields auto-filled
+User uploads file(s) → Gemini parses filename(s) → MusicBrainz fetches metadata → Fields auto-filled
+                                                   ↳ (Fallback: Gemini guesses genre)
 ```
 
 ### Components
 
 1. **Backend Service**: `backend/app/services/ai_tagger.py`
-   - `AITagger` class with filename parsing and metadata fetching
+   - `AITagger` class with Gemini client integration
    - Rate limiting for MusicBrainz (1 req/sec)
-   - Fallback parsing when APIs fail
+   - Fallback parsing and AI genre guessing when APIs fail
 
-2. **API Endpoint**: `POST /api/music/auto-tag`
-   - Accepts filename as form data
-   - Returns artist, title, genre, album, year
+2. **API Endpoints**: `backend/app/routes/music.py`
+   - `POST /api/music/auto-tag`: Accepts filename, returns artist, title, genre, album, year
+   - `GET /api/music/ai-status`: Returns AI service readiness status
 
-3. **Frontend Button**: `frontend/src/pages/UploadPage.jsx`
-   - "✨ Auto-fill with AI" button next to title field
-   - Loading state and error handling
-   - Auto-populates all metadata fields
+3. **Frontend Pages**: 
+   - `UploadPage.jsx`: Single file upload with AI auto-fill
+   - `BulkUploadPage.jsx`: Batch processing of multiple files with AI
+   - Both pages feature an AI status badge and disable AI features if not configured
 
 ---
 
@@ -72,6 +73,8 @@ New dependencies:
 
 ```bash
 uvicorn app.main:app --reload
+# Or if using Docker:
+docker-compose restart backend
 ```
 
 ---
@@ -80,7 +83,7 @@ uvicorn app.main:app --reload
 
 ### Google Gemini API
 
-**Model**: `gemini-2.0-flash-exp` (latest free tier model)
+**Model**: `gemini-2.5-flash` (latest stable model for content generation)
 
 **Rate Limits**: Free tier has unspecified limits (check [AI Studio dashboard](https://aistudio.google.com/rate-limit))
 
@@ -89,6 +92,7 @@ uvicorn app.main:app --reload
 - Removes quality indicators (320kbps, FLAC, etc.)
 - Handles various separators (-, _, spaces)
 - Returns clean JSON: `{"artist": "Pink Floyd", "title": "Comfortably Numb"}`
+- **Fallback**: Guesses the genre based on the artist and title if MusicBrainz lacks genre data.
 
 **Cost**: Free tier (data may be used to improve products)
 
@@ -99,11 +103,10 @@ uvicorn app.main:app --reload
 **Rate Limit**: **1 request per second** (strictly enforced - exceeding may result in IP ban)
 
 **What it provides**:
-- Community-contributed genres/tags (e.g., "progressive rock", "psychedelic")
+- Community-contributed genres/tags (sorted by vote count)
 - Album name
 - Release year
 - Artist credits
-- Format information
 
 **Cost**: Free forever, no API key needed
 

@@ -91,6 +91,19 @@ async def upload_music(
     return db_music
 
 
+@router.get("/ai-status")
+async def ai_status(current_user: User = Depends(get_current_active_user)):
+    """
+    Check if the AI tagging service is available.
+    Returns whether GEMINI_API_KEY is configured.
+    """
+    api_key = os.getenv("GEMINI_API_KEY")
+    return {
+        "available": bool(api_key),
+        "message": "AI tagging ready" if api_key else "GEMINI_API_KEY not configured"
+    }
+
+
 @router.get("/{music_id}", response_model=MusicResponse)
 def get_music(
     music_id: int,
@@ -265,4 +278,3 @@ async def auto_tag_file(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Auto-tagging failed: {str(e)}"
         )
-

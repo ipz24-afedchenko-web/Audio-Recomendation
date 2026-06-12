@@ -1,0 +1,86 @@
+# Docker Deployment Issue Analysis
+Date: 2026-06-12 02:11-02:13
+
+## Problem Summary
+Backend container continuously restarts and fails to connect to PostgreSQL database.
+
+## Root Cause
+Backend is trying to connect to database at "localhost" instead of using Docker service name "db".
+
+**Error:**
+```
+psycopg2.OperationalError: connection to server at "localhost" (::1), port 5432 failed: Connection refused
+```
+
+## Container Status
+```
+NAME                         IMAGE                             STATUS
+music_recommender_backend    music_genre_classifier-backend    Restarting (1) 5 seconds ago
+music_recommender_db         postgres:15-alpine                Up 2 minutes (healthy)
+music_recommender_frontend   music_genre_classifier-frontend   Up About a minute
+```
+
+- ✅ Database container: healthy and running
+- ✅ Frontend container: running
+- ❌ Backend container: crash loop (restarting)
+
+## Issue Details
+
+### What's Wrong
+In a Docker network, containers cannot use "localhost" to connect to other containers. Each container must use the service name defined in docker-compose.yml.
+
+The backend's database connection string is incorrectly configured to use "localhost" instead of "db".
+
+### Files to Check and Fix
+
+1. **backend/alembic.ini**
+   - Check `sqlalchemy.url` setting
+   - Should be: `postgresql://user:password@db:5432/music_recommender_db`
+   - NOT: `postgresql://user:password@localhost:5432/music_recommender_db`
+
+2. **backend/.env** (if exists)
+   - Check DATABASE_URL or DB_HOST
+   - Should be: `DB_HOST=db`
+   - NOT: `DB_HOST=localhost`
+
+3. **backend/app/database.py** (or similar config file)
+   - Check hardcoded connection strings
+   - Replace any localhost references with 'db'
+
+4. **docker-compose.yml**
+   - Verify environment variables for backend service
+   - Ensure DATABASE_URL or similar vars use 'db' as hostname
+
+## Solution Steps
+
+1. Update database connection configuration to use Docker service name:
+   ```
+   localhost → db
+   ```
+
+2. Rebuild and restart containers:
+   ```bash
+   docker-compose down
+   docker-compose up --build
+   ```
+
+3. Run migrations after backend is healthy:
+   ```bash
+   docker-compose exec backend alembic upgrade head
+   ```
+
+## Additional Notes
+
+- Docker warning about obsolete `version` attribute in docker-compose.yml (cosmetic, not critical)
+- Database initialized successfully with proper encoding (UTF8)
+- Frontend nginx configured correctly
+- Port mappings are correct (5432 for db, 80 for frontend)
+
+## Next Actions Required
+
+1. ✅ Identify exact location of localhost reference in backend configuration
+2. ✅ Update to use service name 'db'
+3. ✅ Rebuild backend container
+4. ✅ Verify backend can connect to database
+5. ✅ Run database migrations
+6. ✅ Test application functionality
