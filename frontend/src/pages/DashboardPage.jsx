@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../utils/AuthContext';
 import { musicAPI, analyzeAPI } from '../services/api';
+import strings from '../strings';
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  useTranslation();
 
   const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +26,7 @@ export default function DashboardPage() {
       const res = await musicAPI.getUserMusic(user.id);
       setTracks(res.data);
     } catch (err) {
-      setError('Failed to load tracks');
+      setError(strings.dashboard.loadError);
     } finally {
       setLoading(false);
     }
@@ -39,7 +42,7 @@ export default function DashboardPage() {
       if (detail.includes('already analyzed')) {
         navigate(`/analyze/${musicId}`);
       } else {
-        setError(`Analysis failed: ${detail}`);
+        setError(strings.dashboard.analysisFailed.replace('{{detail}}', detail));
       }
     } finally {
       setAnalyzingId(null);
@@ -47,13 +50,13 @@ export default function DashboardPage() {
   };
 
   const handleDelete = async (musicId) => {
-    if (!window.confirm('Delete this track?')) return;
+    if (!window.confirm(strings.dashboard.deleteConfirm)) return;
     setDeletingId(musicId);
     try {
       await musicAPI.delete(musicId);
       setTracks((prev) => prev.filter((t) => t.id !== musicId));
     } catch (err) {
-      setError('Failed to delete track');
+      setError(strings.dashboard.deleteError);
     } finally {
       setDeletingId(null);
     }
@@ -75,7 +78,7 @@ export default function DashboardPage() {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span>Loading library…</span>
+        <span>{strings.common.loading}</span>
       </div>
     );
   }
@@ -84,11 +87,13 @@ export default function DashboardPage() {
     <>
       <div className="page-header flex-between">
         <div>
-          <h1 className="page-title">My Library</h1>
-          <p className="page-subtitle">{tracks.length} track{tracks.length !== 1 ? 's' : ''}</p>
+          <h1 className="page-title">{strings.dashboard.title}</h1>
+          <p className="page-subtitle">
+            {strings.dashboard.trackCount(tracks.length)}
+          </p>
         </div>
         <button className="btn btn-primary" onClick={() => navigate('/upload')} id="upload-btn">
-          + Upload
+          {strings.dashboard.uploadBtn}
         </button>
       </div>
 
@@ -97,9 +102,9 @@ export default function DashboardPage() {
       {tracks.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon">🎵</div>
-          <p className="empty-state-text">No tracks yet. Upload your first audio file!</p>
+          <p className="empty-state-text">{strings.dashboard.emptyTitle}</p>
           <button className="btn btn-primary" onClick={() => navigate('/upload')}>
-            Upload Music
+            {strings.dashboard.emptyBtn}
           </button>
         </div>
       ) : (
@@ -108,10 +113,10 @@ export default function DashboardPage() {
             <div key={track.id} className="card music-card" id={`track-${track.id}`}>
               <div className="music-title">{track.title}</div>
               <div className="music-meta">
-                {track.artist && <span>Artist: {track.artist}</span>}
-                {track.album && <span>Album: {track.album}</span>}
-                <span>Duration: {formatDuration(track.duration)}</span>
-                <span>Size: {formatSize(track.file_size)}</span>
+                {track.artist && <span>{strings.common.artist}: {track.artist}</span>}
+                {track.album && <span>{strings.common.album}: {track.album}</span>}
+                <span>{strings.common.duration}: {formatDuration(track.duration)}</span>
+                <span>{strings.common.size}: {formatSize(track.file_size)}</span>
                 {track.genre && (
                   <span className="mt-sm">
                     <span className="tag">{track.genre}</span>
@@ -127,9 +132,9 @@ export default function DashboardPage() {
                   id={`analyze-btn-${track.id}`}
                 >
                   {analyzingId === track.id ? (
-                    <><div className="spinner" /> Analyzing…</>
+                    <><div className="spinner" /> {strings.dashboard.analyzing}</>
                   ) : (
-                    '🔍 Analyze'
+                    strings.dashboard.analyze
                   )}
                 </button>
                 <button
@@ -138,7 +143,7 @@ export default function DashboardPage() {
                   disabled={deletingId === track.id}
                   id={`delete-btn-${track.id}`}
                 >
-                  {deletingId === track.id ? 'Deleting…' : '🗑 Delete'}
+                  {deletingId === track.id ? strings.dashboard.deleting : strings.dashboard.delete}
                 </button>
               </div>
             </div>

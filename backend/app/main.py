@@ -8,7 +8,7 @@ import logging
 import os
 import sys
 
-from app.routes import auth_router, music_router, analyze_router, recommend_router, ab_router
+from app.routes import auth_router, music_router, analyze_router, recommend_router, ab_router, admin_router
 from app.database import get_settings
 
 # Database schema is owned by Alembic — see backend/alembic/versions/.
@@ -82,6 +82,7 @@ app.include_router(music_router)
 app.include_router(analyze_router)
 app.include_router(recommend_router)
 app.include_router(ab_router)
+app.include_router(admin_router)
 
 
 @app.get("/")

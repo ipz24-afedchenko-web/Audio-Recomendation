@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { musicAPI } from '../services/api';
+import strings from '../strings';
 
 export default function UploadPage() {
   const navigate = useNavigate();
+  useTranslation();
 
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState('');
@@ -41,7 +44,7 @@ export default function UploadPage() {
 
   const handleAutoTag = async () => {
     if (!file) {
-      setError('Please select a file first');
+      setError(strings.upload.selectFileFirst);
       return;
     }
 
@@ -60,11 +63,11 @@ export default function UploadPage() {
         setArtist(meta.artist || '');
         setAlbum(meta.album || '');
         setGenre(meta.genre || '');
-        setSuccess('✨ Metadata auto-filled successfully!');
+        setSuccess(strings.upload.metaFilled);
         setTimeout(() => setSuccess(''), 3000);
       }
     } catch (err) {
-      const msg = err.response?.data?.detail || 'AI tagging failed';
+      const msg = err.response?.data?.detail || strings.upload.aiTaggingFailed;
       setError(msg);
     } finally {
       setAiLoading(false);
@@ -90,7 +93,7 @@ export default function UploadPage() {
     setSuccess('');
 
     if (!file) {
-      setError('Please select an audio file');
+      setError(strings.upload.selectAudio);
       return;
     }
 
@@ -107,7 +110,7 @@ export default function UploadPage() {
       const newId = res.data.id;
       setUploadedMusicId(newId);
       setAnalysisStatus(res.data.analysis_status || 'pending');
-      setSuccess(`⬆ "${res.data.title}" uploaded! Analysis running in background…`);
+      setSuccess(`⬆ "${res.data.title}" ${strings.upload.uploaded}`);
 
       // Reset the file picker + metadata fields but keep the success
       // banner visible so the user sees the result of the upload.
@@ -126,10 +129,10 @@ export default function UploadPage() {
       });
       setAnalysisStatus(final.analysis_status);
       if (final.analysis_status === 'error') {
-        setAnalysisError(final.analysis_error || 'Unknown error');
-        setError(`Analysis failed: ${final.analysis_error || 'unknown'}`);
+        setAnalysisError(final.analysis_error || strings.errorBoundary.unknownError);
+        setError(strings.upload.analysisFailed.replace('{{detail}}', final.analysis_error || strings.errorBoundary.unknownError));
       } else {
-        setSuccess(`✅ "${final.title}" is fully analysed and ready!`);
+        setSuccess(`✅ "${final.title}" ${strings.upload.fullyAnalyzed}`);
         setTimeout(() => navigate('/'), 1500);
       }
     } catch (err) {
@@ -138,7 +141,7 @@ export default function UploadPage() {
         // Server-side dedup — surface a friendly message.
         setError(`⚠️ ${err.response.data.detail}`);
       } else {
-        setError(err.response?.data?.detail || 'Upload failed');
+        setError(err.response?.data?.detail || strings.upload.analysisFailed.replace('{{detail}}', 'upload failed'));
       }
       setLoading(false);
     }
@@ -147,8 +150,8 @@ export default function UploadPage() {
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">Upload Music</h1>
-        <p className="page-subtitle">Supported formats: MP3, WAV, FLAC, OGG</p>
+        <h1 className="page-title">{strings.upload.title}</h1>
+        <p className="page-subtitle">{strings.upload.subtitle}</p>
       </div>
 
       <div className="card card-narrow">
@@ -157,7 +160,7 @@ export default function UploadPage() {
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label" htmlFor="upload-file">Audio File *</label>
+            <label className="form-label" htmlFor="upload-file">{strings.upload.audioFile}</label>
             <input
               id="upload-file"
               className="form-input"
@@ -170,12 +173,12 @@ export default function UploadPage() {
 
           <div className="form-group">
             <label className="form-label" htmlFor="upload-title">
-              Title *
+              {strings.upload.titleLabel}
               {aiAvailable === true && (
-                <span className="pill pill-success ml-sm">✦ AI ready</span>
+                <span className="pill pill-success ml-sm">✦ {strings.upload.aiReady}</span>
               )}
               {aiAvailable === false && (
-                <span className="pill pill-muted ml-sm">AI not configured</span>
+                <span className="pill pill-muted ml-sm">{strings.upload.aiNotConfigured}</span>
               )}
             </label>
             <div className="flex gap-sm flex-start">
@@ -185,7 +188,7 @@ export default function UploadPage() {
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Track title"
+                placeholder={strings.upload.placeholderTitle}
                 required
               />
               <button
@@ -195,48 +198,48 @@ export default function UploadPage() {
                 disabled={aiLoading || !file || aiAvailable === false}
                 title={
                   aiAvailable === false
-                    ? 'AI service not configured (GEMINI_API_KEY missing)'
-                    : 'Use AI to auto-fill metadata from filename'
+                    ? strings.upload.aiServiceMissing
+                    : strings.upload.aiTooltip
                 }
               >
-                {aiLoading ? <><div className="spinner" /> Loading…</> : '✨ Auto-fill with AI'}
+                {aiLoading ? <><div className="spinner" /> {strings.upload.autoFillLoading}</> : `✨ ${strings.upload.autoFill}`}
               </button>
             </div>
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="upload-artist">Artist</label>
+            <label className="form-label" htmlFor="upload-artist">{strings.upload.artistLabel}</label>
             <input
               id="upload-artist"
               className="form-input"
               type="text"
               value={artist}
               onChange={(e) => setArtist(e.target.value)}
-              placeholder="Artist name"
+              placeholder={strings.upload.placeholderArtist}
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="upload-album">Album</label>
+            <label className="form-label" htmlFor="upload-album">{strings.upload.albumLabel}</label>
             <input
               id="upload-album"
               className="form-input"
               type="text"
               value={album}
               onChange={(e) => setAlbum(e.target.value)}
-              placeholder="Album name"
+              placeholder={strings.upload.placeholderAlbum}
             />
           </div>
 
           <div className="form-group">
-            <label className="form-label" htmlFor="upload-genre">Genre</label>
+            <label className="form-label" htmlFor="upload-genre">{strings.upload.genreLabel}</label>
             <input
               id="upload-genre"
               className="form-input"
               type="text"
               value={genre}
               onChange={(e) => setGenre(e.target.value)}
-              placeholder="e.g. rock, pop, electronic"
+              placeholder={strings.upload.placeholderGenre}
             />
           </div>
 
@@ -248,33 +251,33 @@ export default function UploadPage() {
               id="upload-submit"
             >
               {loading
-                ? <><div className="spinner" /> Uploading…</>
+                ? <><div className="spinner" /> {strings.upload.uploading}</>
                 : analysisStatus === 'analyzing' || analysisStatus === 'pending'
-                  ? <><div className="spinner" /> Analysing…</>
-                  : '⬆ Upload'}
+                  ? <><div className="spinner" /> {strings.upload.analyzing}</>
+                  : `⬆ ${strings.upload.submit}`}
             </button>
             <button
               type="button"
               className="btn btn-secondary"
               onClick={() => { resetForm(); navigate('/'); }}
             >
-              Cancel
+              {strings.common.cancel}
             </button>
           </div>
 
           {analysisStatus === 'analyzing' && (
             <p className="text-sm text-muted mt-md">
-              ⏳ Extracting tempo, key, MFCCs, energy and other audio features…
+              ⏳ {strings.upload.extracting}
             </p>
           )}
           {analysisStatus === 'ready' && (
             <p className="text-sm mt-md text-accent">
-              🎵 Analysis complete — redirecting to your library…
+              🎵 {strings.upload.complete}
             </p>
           )}
           {analysisStatus === 'error' && analysisError && (
             <p className="text-sm mt-md text-danger">
-              ⚠️ Analysis failed: {analysisError}
+              ⚠️ {strings.upload.analysisFailed.replace('{{detail}}', analysisError)}
             </p>
           )}
         </form>
@@ -282,4 +285,3 @@ export default function UploadPage() {
     </>
   );
 }
-

@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '../utils/AuthContext';
 import { musicAPI, recommendAPI } from '../services/api';
+import strings from '../strings';
 
 export default function RecommendationsPage() {
   const { user } = useAuth();
   const location = useLocation();
+  useTranslation();
 
   const [tracks, setTracks] = useState([]);
   const [selectedTrack, setSelectedTrack] = useState(location.state?.musicId || '');
@@ -35,11 +38,12 @@ export default function RecommendationsPage() {
     if (selectedTrack && !loadingTracks) {
       handleGetRecommendations();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadingTracks]);
 
   const handleGetRecommendations = async () => {
     if (!selectedTrack) {
-      setError('Select a track first');
+      setError(strings.recommend.selectFirst);
       return;
     }
     setError('');
@@ -49,10 +53,10 @@ export default function RecommendationsPage() {
       const res = await recommendAPI.get(selectedTrack, limit, algorithm, abTest);
       setRecommendations(res.data);
       if (res.data.length === 0) {
-        setError('No recommendations found. Make sure other tracks are analyzed and the model is trained.');
+        setError(strings.recommend.noRecsError);
       }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to get recommendations');
+      setError(err.response?.data?.detail || strings.recommend.getRecsError);
     } finally {
       setLoading(false);
     }
@@ -74,7 +78,7 @@ export default function RecommendationsPage() {
         `Trained: ${res.data.total_tracks} tracks in ${res.data.n_clusters} clusters (inertia: ${res.data.inertia?.toFixed(1)})`
       );
     } catch (err) {
-      setTrainResult(`${err.response?.data?.detail || 'Training failed'}`);
+      setTrainResult(`${err.response?.data?.detail || strings.recommend.trainingFailed}`);
     } finally {
       setTraining(false);
     }
@@ -91,22 +95,22 @@ export default function RecommendationsPage() {
     }
   };
 
-  const ALGO_LABELS = { 1: 'Cosine', 2: 'Euclidean', 3: 'Cluster-Aware' };
+  const ALGO_LABELS = strings.recommend.algorithms;
 
   return (
     <>
       <div className="page-header">
-        <h1 className="page-title">Recommendations</h1>
-        <p className="page-subtitle">Find similar tracks based on audio features</p>
+        <h1 className="page-title">{strings.recommend.title}</h1>
+        <p className="page-subtitle">{strings.recommend.subtitle}</p>
       </div>
 
       {/* Controls */}
       <div className="card mb-lg">
         <div className="flex gap-md flex-wrap flex-end">
           <div className="form-group mb-0 flex-1-200">
-            <label className="form-label" htmlFor="rec-track">Source Track</label>
+            <label className="form-label" htmlFor="rec-track">{strings.recommend.sourceTrack}</label>
             {loadingTracks ? (
-              <div className="text-muted text-sm">Loading tracks…</div>
+              <div className="text-muted text-sm">{strings.recommend.loadingTracks}</div>
             ) : (
               <select
                 id="rec-track"
@@ -114,7 +118,7 @@ export default function RecommendationsPage() {
                 value={selectedTrack}
                 onChange={(e) => setSelectedTrack(e.target.value)}
               >
-                <option value="">Select a track…</option>
+                <option value="">{strings.recommend.selectTrack}</option>
                 {tracks.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.title}{t.artist ? ` — ${t.artist}` : ''}
@@ -125,7 +129,7 @@ export default function RecommendationsPage() {
           </div>
 
           <div className="form-group mb-0 flex-0-160">
-            <label className="form-label" htmlFor="rec-algo">Algorithm</label>
+            <label className="form-label" htmlFor="rec-algo">{strings.recommend.algorithm}</label>
             <select
               id="rec-algo"
               className="form-input"
@@ -133,14 +137,14 @@ export default function RecommendationsPage() {
               onChange={(e) => setAlgorithm(Number(e.target.value))}
               disabled={abTest}
             >
-              <option value={3}>Cluster-Aware</option>
-              <option value={1}>Cosine</option>
-              <option value={2}>Euclidean</option>
+              <option value={3}>{strings.recommend.algorithms['3']}</option>
+              <option value={1}>{strings.recommend.algorithms['1']}</option>
+              <option value={2}>{strings.recommend.algorithms['2']}</option>
             </select>
           </div>
 
           <div className="form-group mb-0 flex-0-90">
-            <label className="form-label" htmlFor="rec-limit">Limit</label>
+            <label className="form-label" htmlFor="rec-limit">{strings.recommend.limit}</label>
             <input
               id="rec-limit"
               className="form-input"
@@ -158,13 +162,13 @@ export default function RecommendationsPage() {
             disabled={loading || !selectedTrack}
             id="rec-submit"
           >
-            {loading ? <><div className="spinner" /> Searching…</> : 'Find Similar'}
+            {loading ? <><div className="spinner" /> {strings.recommend.searching}</> : strings.recommend.findSimilar}
           </button>
         </div>
 
         {/* A/B Test toggle */}
         <div className="flex-center gap-sm mt-sm">
-          <label className="form-label mb-0 text-sm" htmlFor="rec-ab-toggle">A/B Test Mode</label>
+          <label className="form-label mb-0 text-sm" htmlFor="rec-ab-toggle">{strings.recommend.abTestMode}</label>
           <input
             id="rec-ab-toggle"
             type="checkbox"
@@ -174,7 +178,7 @@ export default function RecommendationsPage() {
           />
           {abTest && (
             <span className="text-sm text-muted">
-              Random algorithm assigned per request
+              {strings.recommend.abRandomNote}
             </span>
           )}
         </div>
@@ -188,7 +192,7 @@ export default function RecommendationsPage() {
           disabled={training}
           id="train-btn"
         >
-          {training ? <><div className="spinner" /> Training…</> : 'Train Model'}
+          {training ? <><div className="spinner" /> {strings.recommend.training}</> : strings.recommend.trainModel}
         </button>
         {trainResult && <span className="text-sm">{trainResult}</span>}
       </div>
@@ -199,8 +203,8 @@ export default function RecommendationsPage() {
       {recommendations.length > 0 && (
         <div className="rec-list">
           <div className="text-sm text-muted mb-md">
-            {recommendations.length} recommendation{recommendations.length !== 1 ? 's' : ''} ·
-            Algorithm: {ALGO_LABELS[recommendations[0]?.algorithm] || 'Unknown'}
+            {strings.recommend.recCount(recommendations.length)} ·
+            {strings.recommend.algorithmLabel}: {ALGO_LABELS[recommendations[0]?.algorithm] || strings.recommend.track}
           </div>
 
           {recommendations.map((rec, idx) => (
@@ -216,7 +220,7 @@ export default function RecommendationsPage() {
             >
               <div className="rec-info">
                 <div className="rec-title">
-                  {rec.recommended_music?.title || `Track #${rec.recommended_music_id}`}
+                  {rec.recommended_music?.title || strings.recommend.track(rec.recommended_music_id)}
                 </div>
                 <div className="rec-artist">
                   {rec.recommended_music?.artist || ''}
@@ -237,9 +241,9 @@ export default function RecommendationsPage() {
 
       {!loading && recommendations.length === 0 && !error && (
         <div className="empty-state">
-          <div className="empty-state-icon">Find Similar</div>
+          <div className="empty-state-icon">{strings.recommend.findSimilar}</div>
           <p className="empty-state-text">
-            Select a track and click "Find Similar" to get recommendations
+            {strings.recommend.recommendClickNote}
           </p>
         </div>
       )}
@@ -247,35 +251,35 @@ export default function RecommendationsPage() {
       {/* A/B Stats */}
       <div className="card mt-lg">
         <div className="flex-center gap-sm mb-sm">
-          <h3 className="mb-0">A/B Test Results</h3>
+          <h3 className="mb-0">{strings.recommend.abResults}</h3>
           <button
             className="btn btn-secondary btn-sm"
             onClick={handleLoadStats}
             disabled={loadingStats}
           >
-            {loadingStats ? 'Loading…' : 'Refresh'}
+            {loadingStats ? strings.recommend.loading : strings.recommend.refresh}
           </button>
         </div>
 
         {abStats && (
           <div>
             <p className="text-sm text-muted mb-md">
-              Total events recorded: {abStats.total_events}
+              {strings.recommend.totalEvents(abStats.total_events)}
             </p>
             {abStats.rows.length === 0 ? (
-              <p className="text-sm text-muted">No data yet</p>
+              <p className="text-sm text-muted">{strings.recommend.noData}</p>
             ) : (
               <div className="ab-stats-grid">
                 <div className="ab-stats-header">
-                  <span>Algorithm</span>
-                  <span>Impressions</span>
-                  <span>Clicks</span>
-                  <span>Plays</span>
-                  <span>CTR</span>
+                  <span>{strings.recommend.algorithmLabel}</span>
+                  <span>{strings.admin.abColumns.impressions}</span>
+                  <span>{strings.admin.abColumns.clicks}</span>
+                  <span>{strings.admin.abColumns.plays}</span>
+                  <span>{strings.admin.abColumns.ctr}</span>
                 </div>
                 {abStats.rows.map((row) => (
                   <div key={row.algorithm} className="ab-stats-row">
-                    <span className="tag">{ALGO_LABELS[row.algorithm] || `Algo #${row.algorithm}`}</span>
+                    <span className="tag">{ALGO_LABELS[row.algorithm] || strings.recommend.track(row.algorithm)}</span>
                     <span>{row.impressions}</span>
                     <span>{row.clicks}</span>
                     <span>{row.plays}</span>
@@ -290,7 +294,7 @@ export default function RecommendationsPage() {
         )}
 
         {!abStats && !loadingStats && (
-          <p className="text-sm text-muted">Click Refresh to load A/B test data</p>
+          <p className="text-sm text-muted">{strings.recommend.clickRefresh}</p>
         )}
       </div>
     </>

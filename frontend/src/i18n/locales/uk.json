@@ -1,0 +1,259 @@
+{
+  "common": {
+    "loading": "Завантаження…",
+    "cancel": "Скасувати",
+    "back": "Назад",
+    "delete": "Видалити",
+    "artist": "Виконавець",
+    "album": "Альбом",
+    "duration": "Тривалість",
+    "size": "Розмір"
+  },
+  "navbar": {
+    "dashboard": "Головна",
+    "upload": "Завантажити",
+    "uploadSingle": "Один трек",
+    "uploadBulk": "Масове завантаження",
+    "recommend": "Рекомендації",
+    "admin": "Адмін",
+    "logout": "Вийти",
+    "login": "Увійти",
+    "register": "Реєстрація",
+    "switchLanguage": "Змінити мову"
+  },
+  "nav": {
+    "uploadSingle": "Один трек",
+    "uploadBulk": "Масове завантаження"
+  },
+  "errorBoundary": {
+    "title": "Щось пішло не так",
+    "unknownError": "Невідома помилка",
+    "reload": "Перезавантажити"
+  },
+  "auth": {
+    "login": {
+      "welcome": "З поверненням",
+      "subtitle": "Увійдіть у свій акаунт",
+      "username": "Ім'я користувача",
+      "password": "Пароль",
+      "placeholderUsername": "Введіть ім'я користувача",
+      "placeholderPassword": "Введіть пароль",
+      "submit": "Увійти",
+      "signingIn": "Вхід…",
+      "noAccount": "Немає акаунта?",
+      "createOne": "Створити"
+    },
+    "register": {
+      "welcome": "Створити акаунт",
+      "subtitle": "Почніть відкривати нову музику",
+      "username": "Ім'я користувача",
+      "email": "Email",
+      "password": "Пароль",
+      "placeholderUsername": "Оберіть ім'я користувача",
+      "placeholderEmail": "you@example.com",
+      "placeholderPassword": "Мін. 8 символів",
+      "passwordMin": "Пароль має бути не менше 8 символів",
+      "submit": "Створити акаунт",
+      "creating": "Створення…",
+      "haveAccount": "Вже маєте акаунт?",
+      "signIn": "Увійти"
+    }
+  },
+  "dashboard": {
+    "title": "Моя бібліотека",
+    "trackCount": "{{count}} трек",
+    "trackCount_other": "{{count}} треків",
+    "uploadBtn": "+ Завантажити",
+    "emptyTitle": "Ще немає треків. Завантажте свій перший аудіофайл!",
+    "emptyBtn": "Завантажити музику",
+    "loadError": "Не вдалося завантажити треки",
+    "deleteConfirm": "Видалити цей трек?",
+    "deleteError": "Не вдалося видалити трек",
+    "analyzing": "Аналіз…",
+    "delete": "Видалити",
+    "deleting": "Видалення…",
+    "analyze": "Аналізувати",
+    "analysisFailed": "Помилка аналізу: {{detail}}"
+  },
+  "upload": {
+    "title": "Завантажити музику",
+    "subtitle": "Підтримувані формати: MP3, WAV, FLAC, OGG",
+    "audioFile": "Аудіофайл *",
+    "titleLabel": "Назва *",
+    "artistLabel": "Виконавець",
+    "albumLabel": "Альбом",
+    "genreLabel": "Жанр",
+    "placeholderTitle": "Назва треку",
+    "placeholderArtist": "Ім'я виконавця",
+    "placeholderAlbum": "Назва альбому",
+    "placeholderGenre": "напр. rock, pop, electronic",
+    "autoFill": "Автозаповнення через ШІ",
+    "autoFillLoading": "Завантаження…",
+    "aiReady": "ШІ готовий",
+    "aiNotConfigured": "ШІ не налаштовано",
+    "aiServiceMissing": "Сервіс ШІ не налаштовано (відсутній GEMINI_API_KEY)",
+    "aiTooltip": "Використати ШІ для автозаповнення метаданих з назви файлу",
+    "selectFileFirst": "Спочатку оберіть файл",
+    "metaFilled": "Метадані автоматично заповнено!",
+    "aiTaggingFailed": "Помилка ШІ-розмітки",
+    "selectAudio": "Оберіть аудіофайл",
+    "uploaded": "завантажено! Аналіз у фоновому режимі…",
+    "fullyAnalyzed": "повністю проаналізовано і готово!",
+    "analysisFailed": "Помилка аналізу: {{detail}}",
+    "extracting": "Видобування темпу, тональності, MFCC, енергії та інших аудіофіч…",
+    "complete": "Аналіз завершено — переходимо до вашої бібліотеки…",
+    "submit": "Завантажити",
+    "uploading": "Завантаження…",
+    "analyzing": "Аналіз…"
+  },
+  "analyze": {
+    "loading": "Завантаження аналізу…",
+    "loadError": "Не вдалося завантажити дані аналізу",
+    "backToLibrary": "До бібліотеки",
+    "trackAnalysis": "Аналіз треку",
+    "tempo": "Темп",
+    "key": "Тональність",
+    "major": "Мажор",
+    "minor": "Мінор",
+    "duration": "Тривалість",
+    "loudness": "Гучність",
+    "energy": "Енергія",
+    "valence": "Валентність",
+    "brightness": "Яскравість",
+    "zcr": "ZCR",
+    "audioProfile": "Аудіопрофіль",
+    "mfcc": "MFCC коефіцієнти (тембр)",
+    "chromagram": "Хромаграма (класи тональності)",
+    "getRecs": "Отримати рекомендації для цього треку"
+  },
+  "recommend": {
+    "title": "Рекомендації",
+    "subtitle": "Знайдіть схожі треки за аудіофічами",
+    "sourceTrack": "Вихідний трек",
+    "loadingTracks": "Завантаження треків…",
+    "selectTrack": "Оберіть трек…",
+    "algorithm": "Алгоритм",
+    "limit": "Ліміт",
+    "findSimilar": "Знайти схожі",
+    "searching": "Пошук…",
+    "abTestMode": "Режим A/B тесту",
+    "abRandomNote": "Випадковий алгоритм призначається на запит",
+    "trainModel": "Навчити модель",
+    "training": "Навчання…",
+    "abResults": "Результати A/B тесту",
+    "refresh": "Оновити",
+    "loading": "Завантаження…",
+    "totalEvents": "Всього подій записано: {{count}}",
+    "noData": "Даних ще немає",
+    "noRecsError": "Рекомендацій не знайдено. Переконайтеся, що інші треки проаналізовані та модель навчена.",
+    "getRecsError": "Не вдалося отримати рекомендації",
+    "selectFirst": "Спочатку оберіть трек",
+    "recCount": "{{count}} рекомендація",
+    "recCount_other": "{{count}} рекомендацій",
+    "algorithmLabel": "Алгоритм",
+    "recommendClickNote": "Оберіть трек і натисніть «Знайти схожі», щоб отримати рекомендації",
+    "clickRefresh": "Натисніть Оновити, щоб завантажити дані A/B тесту",
+    "trainingFailed": "Помилка навчання",
+    "track": "Трек #{{id}}",
+    "algorithms": {
+      "1": "Косинус",
+      "2": "Евклідів",
+      "3": "Кластерно-залежний"
+    }
+  },
+  "admin": {
+    "pageTitle": "Панель адміністратора",
+    "pageSubtitle": "Огляд бібліотеки та результати A/B тестів",
+    "loading": "Завантаження панелі…",
+    "forbidden": "Доступ лише для адміністратора",
+    "library": {
+      "title": "Бібліотека",
+      "users": "Користувачі",
+      "tracks": "Треки",
+      "analyzed": "Проаналізовано"
+    },
+    "ab": {
+      "title": "Результати A/B тестів",
+      "best": "Найкращий алгоритм",
+      "significant": "Статистично значущий",
+      "notSignificant": "Ще не значущий",
+      "pValue": "p-значення",
+      "zScore": "z-оцінка",
+      "noData": "Даних A/B ще немає — увімкніть A/B режим у рекомендаціях",
+      "promote": "Зробити переможця типовим",
+      "promoted": "Типовий алгоритм оновлено",
+      "defaultLabel": "Поточний типовий"
+    },
+    "abColumns": {
+      "algorithm": "Алгоритм",
+      "impressions": "Перегляди",
+      "clicks": "Кліки",
+      "plays": "Прослуховування",
+      "ctr": "CTR"
+    }
+  },
+  "bulk": {
+    "status": {
+      "idle": "Очікує",
+      "tagging": "ШІ обробляє…",
+      "tagged": "Готово",
+      "uploading": "Завантаження…",
+      "analyzing": "Аналіз…",
+      "done": "Завантажено",
+      "error": "Помилка"
+    },
+    "placeholder": {
+      "title": "Назва",
+      "artist": "Виконавець",
+      "album": "Альбом",
+      "genre": "Жанр"
+    },
+    "tooltip": {
+      "aiAutoFill": "ШІ автозаповнення",
+      "aiUnavailable": "ШІ недоступний",
+      "remove": "Видалити"
+    },
+    "columnHeaders": ["Назва *", "Виконавець", "Альбом", "Жанр", "Статус", ""],
+    "pageTitle": "Масове завантаження",
+    "pageSubtitle": "Перетягніть файли — ШІ автоматично визначить жанр, виконавця та назву",
+    "dropzone": {
+      "active": "Відпустіть файли тут",
+      "inactive": "Перетягніть аудіофайли сюди",
+      "hint": "або натисніть, щоб обрати · MP3, WAV, FLAC, OGG"
+    },
+    "aiButton": {
+      "tagging": "ШІ обробляє…",
+      "idle": "ШІ автозаповнення всіх"
+    },
+    "uploadButton": {
+      "uploading": "Завантаження…",
+      "idle": "Завантажити всі ({{count}})"
+    },
+    "clearDone": "Очистити завантажені",
+    "clearAll": "Очистити все",
+    "stats": {
+      "ready": "{{done}}/{{total}} готово",
+      "analyzing": "{{count}} аналізується…",
+      "errors": "{{count}} помилок"
+    },
+    "empty": {
+      "title": "Файли не вибрано",
+      "button": "Вибрати файли"
+    },
+    "footer": {
+      "dashboard": "На головну",
+      "uploadMore": "Завантажити ще"
+    },
+    "messages": {
+      "tagSuccess": "ШІ автозаповнення завершено для {{count}} треків",
+      "tagPartial": "ШІ обробку завершено: {{success}} успішно, {{failed}} помилок",
+      "uploadSuccess": "Завантажено {{count}} треків. Аналіз у фоновому режимі…",
+      "dupError": "Дублікат: {{detail}}",
+      "uploadError": "Помилка завантаження",
+      "aiError": "Помилка ШІ",
+      "analysisError": "Помилка аналізу",
+      "analysisTimeout": "Аналіз триває довше, ніж очікувалося — оновіть сторінку пізніше",
+      "analysisCheckFailed": "Не вдалося перевірити статус аналізу"
+    }
+  }
+}

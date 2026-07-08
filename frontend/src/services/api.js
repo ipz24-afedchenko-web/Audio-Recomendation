@@ -126,6 +126,17 @@ export const recommendAPI = {
     }),
 
   getABStats: () => api.get('/ab/stats'),
+
+  promote: (algorithm) =>
+    api.post('/ab/promote', null, { params: { algorithm } }),
+
+  getDefault: () => api.get('/ab/default'),
+};
+
+/* ── Admin ── */
+
+export const adminAPI = {
+  getStats: () => api.get('/admin/stats'),
 };
 
 export default api;

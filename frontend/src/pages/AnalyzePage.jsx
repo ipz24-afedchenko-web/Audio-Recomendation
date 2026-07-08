@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import Plot from 'react-plotly.js';
 import { analyzeAPI, musicAPI } from '../services/api';
+import strings from '../strings';
 
 const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
 export default function AnalyzePage() {
   const { musicId } = useParams();
   const navigate = useNavigate();
+  useTranslation();
 
   const [track, setTrack] = useState(null);
   const [features, setFeatures] = useState(null);
@@ -27,7 +30,7 @@ export default function AnalyzePage() {
       setTrack(trackRes.data);
       setFeatures(featuresRes.data);
     } catch (err) {
-      setError(err.response?.data?.detail || 'Failed to load analysis data');
+      setError(err.response?.data?.detail || strings.analyze.loadError);
     } finally {
       setLoading(false);
     }
@@ -37,7 +40,7 @@ export default function AnalyzePage() {
     return (
       <div className="loading-center">
         <div className="spinner" />
-        <span>Loading analysis…</span>
+        <span>{strings.analyze.loading}</span>
       </div>
     );
   }
@@ -47,7 +50,7 @@ export default function AnalyzePage() {
       <div>
         <div className="alert alert-error">{error}</div>
         <button className="btn btn-secondary" onClick={() => navigate('/')}>
-          ← Back to Library
+          ← {strings.analyze.backToLibrary}
         </button>
       </div>
     );
@@ -82,7 +85,14 @@ export default function AnalyzePage() {
             features.spectral_centroid_mean ? Math.min(features.spectral_centroid_mean / 6000, 1) : 0,
             features.zero_crossing_rate_mean ? Math.min(features.zero_crossing_rate_mean * 5, 1) : 0,
           ],
-          theta: ['Energy', 'Valence', 'Tempo', 'Loudness', 'Brightness', 'ZCR'],
+          theta: [
+            strings.analyze.energy,
+            strings.analyze.valence,
+            strings.analyze.tempo,
+            strings.analyze.loudness,
+            strings.analyze.brightness,
+            strings.analyze.zcr,
+          ],
           fill: 'toself',
           fillcolor: 'rgba(108, 92, 231, 0.15)',
           line: { color: '#6c5ce7', width: 2 },
@@ -125,50 +135,50 @@ export default function AnalyzePage() {
     <>
       <div className="page-header">
         <button className="btn btn-secondary btn-sm mb-md" onClick={() => navigate('/')}>
-          ← Back
+          ← {strings.common.back}
         </button>
-        <h1 className="page-title">{track?.title || 'Track Analysis'}</h1>
+        <h1 className="page-title">{track?.title || strings.analyze.trackAnalysis}</h1>
         {track?.artist && <p className="page-subtitle">{track.artist}</p>}
       </div>
 
       {/* Key metrics */}
       <div className="features-grid mb-lg">
         <div className="feature-item">
-          <div className="feature-label">Tempo</div>
+          <div className="feature-label">{strings.analyze.tempo}</div>
           <div className="feature-value">
             {features?.tempo ? Math.round(features.tempo) : '—'}
             <span className="feature-unit">BPM</span>
           </div>
         </div>
         <div className="feature-item">
-          <div className="feature-label">Key</div>
+          <div className="feature-label">{strings.analyze.key}</div>
           <div className="feature-value">
             {features?.key != null ? KEY_NAMES[features.key] : '—'}
             <span className="feature-unit">
-              {features?.mode === 1 ? 'Major' : features?.mode === 0 ? 'Minor' : ''}
+              {features?.mode === 1 ? strings.analyze.major : features?.mode === 0 ? strings.analyze.minor : ''}
             </span>
           </div>
         </div>
         <div className="feature-item">
-          <div className="feature-label">Duration</div>
+          <div className="feature-label">{strings.analyze.duration}</div>
           <div className="feature-value">{formatDuration(features?.duration)}</div>
         </div>
         <div className="feature-item">
-          <div className="feature-label">Loudness</div>
+          <div className="feature-label">{strings.analyze.loudness}</div>
           <div className="feature-value">
             {features?.loudness != null ? features.loudness.toFixed(1) : '—'}
             <span className="feature-unit">dB</span>
           </div>
         </div>
         <div className="feature-item">
-          <div className="feature-label">Energy</div>
+          <div className="feature-label">{strings.analyze.energy}</div>
           <div className="feature-value">
             {features?.energy != null ? (features.energy * 100).toFixed(0) : '—'}
             <span className="feature-unit">%</span>
           </div>
         </div>
         <div className="feature-item">
-          <div className="feature-label">Valence</div>
+          <div className="feature-label">{strings.analyze.valence}</div>
           <div className="feature-value">
             {features?.valence != null ? (features.valence * 100).toFixed(0) : '—'}
             <span className="feature-unit">%</span>
@@ -178,7 +188,7 @@ export default function AnalyzePage() {
 
       {/* Radar chart */}
       <div className="chart-container">
-        <div className="chart-title">Audio Profile</div>
+        <div className="chart-title">{strings.analyze.audioProfile}</div>
         <Plot
           data={radarData}
           layout={{
@@ -197,7 +207,7 @@ export default function AnalyzePage() {
       {/* MFCCs */}
       {mfccData.length > 0 && (
         <div className="chart-container">
-          <div className="chart-title">MFCC Coefficients (Timbre)</div>
+          <div className="chart-title">{strings.analyze.mfcc}</div>
           <Plot
             data={mfccData}
             layout={{
@@ -214,7 +224,7 @@ export default function AnalyzePage() {
       {/* Chroma */}
       {chromaData.length > 0 && (
         <div className="chart-container">
-          <div className="chart-title">Chromagram (Pitch Classes)</div>
+          <div className="chart-title">{strings.analyze.chromagram}</div>
           <Plot
             data={chromaData}
             layout={{
@@ -235,7 +245,7 @@ export default function AnalyzePage() {
           onClick={() => navigate('/recommendations', { state: { musicId: parseInt(musicId) } })}
           id="get-recommendations-btn"
         >
-          🎯 Get Recommendations for This Track
+          🎯 {strings.analyze.getRecs}
         </button>
       </div>
     </>

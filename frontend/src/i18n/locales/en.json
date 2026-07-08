@@ -1,0 +1,259 @@
+{
+  "common": {
+    "loading": "Loading…",
+    "cancel": "Cancel",
+    "back": "Back",
+    "delete": "Delete",
+    "artist": "Artist",
+    "album": "Album",
+    "duration": "Duration",
+    "size": "Size"
+  },
+  "navbar": {
+    "dashboard": "Dashboard",
+    "upload": "Upload",
+    "uploadSingle": "Single Track",
+    "uploadBulk": "Bulk Upload",
+    "recommend": "Recommend",
+    "admin": "Admin",
+    "logout": "Logout",
+    "login": "Login",
+    "register": "Register",
+    "switchLanguage": "Switch language"
+  },
+  "nav": {
+    "uploadSingle": "Single Track",
+    "uploadBulk": "Bulk Upload"
+  },
+  "errorBoundary": {
+    "title": "Something went wrong",
+    "unknownError": "Unknown error",
+    "reload": "Reload page"
+  },
+  "auth": {
+    "login": {
+      "welcome": "Welcome back",
+      "subtitle": "Sign in to your account",
+      "username": "Username",
+      "password": "Password",
+      "placeholderUsername": "Enter username",
+      "placeholderPassword": "Enter password",
+      "submit": "Sign in",
+      "signingIn": "Signing in…",
+      "noAccount": "Don't have an account?",
+      "createOne": "Create one"
+    },
+    "register": {
+      "welcome": "Create account",
+      "subtitle": "Start discovering new music",
+      "username": "Username",
+      "email": "Email",
+      "password": "Password",
+      "placeholderUsername": "Choose a username",
+      "placeholderEmail": "you@example.com",
+      "placeholderPassword": "Min 8 characters",
+      "passwordMin": "Password must be at least 8 characters",
+      "submit": "Create account",
+      "creating": "Creating…",
+      "haveAccount": "Already have an account?",
+      "signIn": "Sign in"
+    }
+  },
+  "dashboard": {
+    "title": "My Library",
+    "trackCount": "{{count}} track",
+    "trackCount_other": "{{count}} tracks",
+    "uploadBtn": "+ Upload",
+    "emptyTitle": "No tracks yet. Upload your first audio file!",
+    "emptyBtn": "Upload Music",
+    "loadError": "Failed to load tracks",
+    "deleteConfirm": "Delete this track?",
+    "deleteError": "Failed to delete track",
+    "analyzing": "Analyzing…",
+    "delete": "Delete",
+    "deleting": "Deleting…",
+    "analyze": "Analyze",
+    "analysisFailed": "Analysis failed: {{detail}}"
+  },
+  "upload": {
+    "title": "Upload Music",
+    "subtitle": "Supported formats: MP3, WAV, FLAC, OGG",
+    "audioFile": "Audio File *",
+    "titleLabel": "Title *",
+    "artistLabel": "Artist",
+    "albumLabel": "Album",
+    "genreLabel": "Genre",
+    "placeholderTitle": "Track title",
+    "placeholderArtist": "Artist name",
+    "placeholderAlbum": "Album name",
+    "placeholderGenre": "e.g. rock, pop, electronic",
+    "autoFill": "Auto-fill with AI",
+    "autoFillLoading": "Loading…",
+    "aiReady": "AI ready",
+    "aiNotConfigured": "AI not configured",
+    "aiServiceMissing": "AI service not configured (GEMINI_API_KEY missing)",
+    "aiTooltip": "Use AI to auto-fill metadata from filename",
+    "selectFileFirst": "Please select a file first",
+    "metaFilled": "Metadata auto-filled successfully!",
+    "aiTaggingFailed": "AI tagging failed",
+    "selectAudio": "Please select an audio file",
+    "uploaded": "uploaded! Analysis running in background…",
+    "fullyAnalyzed": "is fully analysed and ready!",
+    "analysisFailed": "Analysis failed: {{detail}}",
+    "extracting": "Extracting tempo, key, MFCCs, energy and other audio features…",
+    "complete": "Analysis complete — redirecting to your library…",
+    "submit": "Upload",
+    "uploading": "Uploading…",
+    "analyzing": "Analysing…"
+  },
+  "analyze": {
+    "loading": "Loading analysis…",
+    "loadError": "Failed to load analysis data",
+    "backToLibrary": "Back to Library",
+    "trackAnalysis": "Track Analysis",
+    "tempo": "Tempo",
+    "key": "Key",
+    "major": "Major",
+    "minor": "Minor",
+    "duration": "Duration",
+    "loudness": "Loudness",
+    "energy": "Energy",
+    "valence": "Valence",
+    "brightness": "Brightness",
+    "zcr": "ZCR",
+    "audioProfile": "Audio Profile",
+    "mfcc": "MFCC Coefficients (Timbre)",
+    "chromagram": "Chromagram (Pitch Classes)",
+    "getRecs": "Get Recommendations for This Track"
+  },
+  "recommend": {
+    "title": "Recommendations",
+    "subtitle": "Find similar tracks based on audio features",
+    "sourceTrack": "Source Track",
+    "loadingTracks": "Loading tracks…",
+    "selectTrack": "Select a track…",
+    "algorithm": "Algorithm",
+    "limit": "Limit",
+    "findSimilar": "Find Similar",
+    "searching": "Searching…",
+    "abTestMode": "A/B Test Mode",
+    "abRandomNote": "Random algorithm assigned per request",
+    "trainModel": "Train Model",
+    "training": "Training…",
+    "abResults": "A/B Test Results",
+    "refresh": "Refresh",
+    "loading": "Loading…",
+    "totalEvents": "Total events recorded: {{count}}",
+    "noData": "No data yet",
+    "noRecsError": "No recommendations found. Make sure other tracks are analyzed and the model is trained.",
+    "getRecsError": "Failed to get recommendations",
+    "selectFirst": "Select a track first",
+    "recCount": "{{count}} recommendation",
+    "recCount_other": "{{count}} recommendations",
+    "algorithmLabel": "Algorithm",
+    "recommendClickNote": "Select a track and click \"Find Similar\" to get recommendations",
+    "clickRefresh": "Click Refresh to load A/B test data",
+    "trainingFailed": "Training failed",
+    "track": "Track #{{id}}",
+    "algorithms": {
+      "1": "Cosine",
+      "2": "Euclidean",
+      "3": "Cluster-Aware"
+    }
+  },
+  "admin": {
+    "pageTitle": "Admin Dashboard",
+    "pageSubtitle": "Library overview and A/B experiment results",
+    "loading": "Loading dashboard…",
+    "forbidden": "Admin access required",
+    "library": {
+      "title": "Library",
+      "users": "Users",
+      "tracks": "Tracks",
+      "analyzed": "Analyzed"
+    },
+    "ab": {
+      "title": "A/B Test Results",
+      "best": "Best algorithm",
+      "significant": "Significant",
+      "notSignificant": "Not significant yet",
+      "pValue": "p-value",
+      "zScore": "z-score",
+      "noData": "No A/B data yet — enable A/B mode on recommendations to collect events",
+      "promote": "Promote winner as default",
+      "promoted": "Default algorithm updated",
+      "defaultLabel": "Current default"
+    },
+    "abColumns": {
+      "algorithm": "Algorithm",
+      "impressions": "Impressions",
+      "clicks": "Clicks",
+      "plays": "Plays",
+      "ctr": "CTR"
+    }
+  },
+  "bulk": {
+    "status": {
+      "idle": "Pending",
+      "tagging": "AI processing…",
+      "tagged": "Ready",
+      "uploading": "Uploading…",
+      "analyzing": "Analyzing…",
+      "done": "Uploaded",
+      "error": "Error"
+    },
+    "placeholder": {
+      "title": "Title",
+      "artist": "Artist",
+      "album": "Album",
+      "genre": "Genre"
+    },
+    "tooltip": {
+      "aiAutoFill": "AI auto-fill",
+      "aiUnavailable": "AI unavailable",
+      "remove": "Remove"
+    },
+    "columnHeaders": ["Title *", "Artist", "Album", "Genre", "Status", ""],
+    "pageTitle": "Bulk Upload",
+    "pageSubtitle": "Drag multiple files, AI will automatically determine genre, artist, and title",
+    "dropzone": {
+      "active": "Release files here",
+      "inactive": "Drag audio files here",
+      "hint": "or click to select · MP3, WAV, FLAC, OGG"
+    },
+    "aiButton": {
+      "tagging": "AI processing…",
+      "idle": "AI Auto-fill All"
+    },
+    "uploadButton": {
+      "uploading": "Uploading…",
+      "idle": "Upload All ({{count}})"
+    },
+    "clearDone": "Clear Uploaded",
+    "clearAll": "Clear All",
+    "stats": {
+      "ready": "{{done}}/{{total}} ready",
+      "analyzing": "{{count}} analyzing…",
+      "errors": "{{count}} errors"
+    },
+    "empty": {
+      "title": "No files selected",
+      "button": "Select Files"
+    },
+    "footer": {
+      "dashboard": "Go to Dashboard",
+      "uploadMore": "Upload More"
+    },
+    "messages": {
+      "tagSuccess": "AI auto-fill completed for {{count}} tracks",
+      "tagPartial": "AI processing complete: {{success}} successful, {{failed}} errors",
+      "uploadSuccess": "Uploaded {{count}} tracks. Analysis running in background…",
+      "dupError": "Duplicate: {{detail}}",
+      "uploadError": "Upload error",
+      "aiError": "AI error",
+      "analysisError": "Analysis error",
+      "analysisTimeout": "Analysis took longer than expected — refresh the page later",
+      "analysisCheckFailed": "Could not verify analysis status"
+    }
+  }
+}

@@ -29,8 +29,14 @@ class ABStatsRow(BaseModel):
     clicks: int = 0
     plays: int = 0
     ctr: float = 0.0
+    z_score: float | None = None
+    p_value: float | None = None
+    significant: bool = False
 
 
 class ABStatsResponse(BaseModel):
     total_events: int
     rows: list[ABStatsRow]
+    best_algorithm: int | None = None
+    winner_significant: bool = False
+    default_algorithm: int = 3

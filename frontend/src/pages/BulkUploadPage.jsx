@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { musicAPI } from '../services/api';
 import strings from '../strings';
 
@@ -44,6 +45,7 @@ function makeTrack(file) {
 
 /* ── Status badge ── */
 function StatusBadge({ status, error }) {
+  useTranslation();
   const map = {
     [STATUS.IDLE]:     { label: strings.bulk.status.idle,     color: '#606070', bg: 'rgba(96,96,112,0.12)' },
     [STATUS.TAGGING]:  { label: strings.bulk.status.tagging,  color: '#f39c12', bg: 'rgba(243,156,18,0.12)' },
@@ -98,6 +100,7 @@ function InlineField({ value, placeholder, onChange, disabled }) {
 
 /* ── Track row ── */
 function TrackRow({ track, onUpdate, onRemove, onTagOne, aiAvailable }) {
+  useTranslation();
   const busy =
     track.status === STATUS.TAGGING ||
     track.status === STATUS.UPLOADING ||
@@ -172,6 +175,7 @@ function TrackRow({ track, onUpdate, onRemove, onTagOne, aiAvailable }) {
 
 /* ── Column headers ── */
 function TrackHeaders() {
+  useTranslation();
   const cols = strings.bulk.columnHeaders;
   return (
     <div className="track-headers">
@@ -187,6 +191,7 @@ function TrackHeaders() {
    ════════════════════════════════════════════ */
 export default function BulkUploadPage() {
   const navigate = useNavigate();
+  useTranslation();
   const fileInputRef = useRef(null);
 
   const [tracks, setTracks] = useState([]);

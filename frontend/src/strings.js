@@ -1,86 +1,72 @@
-const strings = {
-  /* ── ErrorBoundary ── */
-  errorBoundary: {
-    title: 'Something went wrong',
-    unknownError: 'Unknown error',
-    reload: 'Reload page',
-  },
+import i18n from './i18n';
 
-  /* ── Navbar ── */
-  nav: {
-    uploadSingle: '\uD83C\uDFB5 Single Track',
-    uploadBulk: '\uD83D\uDCC2 Bulk Upload',
-  },
+const FUNC_KEYS = new Set([
+  'bulk.uploadButton.idle',
+  'bulk.stats.ready',
+  'bulk.stats.analyzing',
+  'bulk.stats.errors',
+  'bulk.messages.tagSuccess',
+  'bulk.messages.tagPartial',
+  'bulk.messages.uploadSuccess',
+  'bulk.messages.dupError',
+  'dashboard.trackCount',
+  'recommend.recCount',
+  'recommend.track',
+]);
 
-  /* ── BulkUploadPage ── */
-  bulk: {
-    status: {
-      idle: 'Pending',
-      tagging: 'AI processing\u2026',
-      tagged: 'Ready',
-      uploading: 'Uploading\u2026',
-      analyzing: 'Analyzing\u2026',
-      done: '\u2713 Uploaded',
-      error: '\u2717 Error',
-    },
-    placeholder: {
-      title: 'Title',
-      artist: 'Artist',
-      album: 'Album',
-      genre: 'Genre',
-    },
-    tooltip: {
-      aiAutoFill: 'AI auto-fill',
-      aiUnavailable: 'AI unavailable',
-      remove: 'Remove',
-    },
-    columnHeaders: ['Title *', 'Artist', 'Album', 'Genre', 'Status', ''],
-    pageTitle: 'Bulk Upload',
-    pageSubtitle:
-      'Drag multiple files, AI will automatically determine genre, artist, and title',
-    dropzone: {
-      active: 'Release files here',
-      inactive: 'Drag audio files here',
-      hint: 'or click to select \u00B7 MP3, WAV, FLAC, OGG',
-    },
-    aiButton: {
-      tagging: 'AI processing\u2026',
-      idle: '\u2728 AI Auto-fill All',
-    },
-    uploadButton: {
-      uploading: 'Uploading\u2026',
-      idle: (n) => `\u2B06 Upload All (${n})`,
-    },
-    clearDone: 'Clear Uploaded',
-    clearAll: 'Clear All',
-    stats: {
-      ready: (done, total) => `${done}/${total} ready`,
-      analyzing: (n) => ` \u00B7 ${n} analyzing\u2026`,
-      errors: (n) => ` \u00B7 ${n} errors`,
-    },
-    empty: {
-      title: 'No files selected',
-      button: 'Select Files',
-    },
-    footer: {
-      dashboard: 'Go to Dashboard',
-      uploadMore: 'Upload More',
-    },
-    messages: {
-      tagSuccess: (n) => `\u2728 AI auto-fill completed for ${n} tracks`,
-      tagPartial: (success, failed) =>
-        `AI processing complete: ${success} successful, ${failed} errors`,
-      uploadSuccess: (n) =>
-        `\u2713 Uploaded ${n} tracks. Analysis running in background\u2026`,
-      dupError: (detail) => `Duplicate: ${detail}`,
-      uploadError: 'Upload error',
-      aiError: 'AI error',
-      analysisError: 'Analysis error',
-      analysisTimeout:
-        'Analysis took longer than expected \u2014 refresh the page later',
-      analysisCheckFailed: 'Could not verify analysis status',
-    },
-  },
+const PARAM_NAMES = {
+  'bulk.uploadButton.idle': ['count'],
+  'bulk.stats.ready': ['done', 'total'],
+  'bulk.stats.analyzing': ['count'],
+  'bulk.stats.errors': ['count'],
+  'bulk.messages.tagSuccess': ['count'],
+  'bulk.messages.tagPartial': ['success', 'failed'],
+  'bulk.messages.uploadSuccess': ['count'],
+  'bulk.messages.dupError': ['detail'],
+  'dashboard.trackCount': ['count'],
+  'recommend.recCount': ['count'],
+  'recommend.track': ['id'],
 };
 
+function resolveResource(key) {
+  try {
+    return i18n.getResource(i18n.language, 'translation', key);
+  } catch {
+    return undefined;
+  }
+}
+
+function resolveKey(key) {
+  if (FUNC_KEYS.has(key)) {
+    return (...args) => {
+      const params = {};
+      (PARAM_NAMES[key] || []).forEach((name, i) => {
+        if (args[i] !== undefined) params[name] = args[i];
+      });
+      return i18n.t(key, params);
+    };
+  }
+
+  const res = resolveResource(key);
+  if (Array.isArray(res)) return res;
+  if (res && typeof res === 'object') return createProxy(key);
+  return i18n.t(key);
+}
+
+function createProxy(prefix) {
+  return new Proxy(
+    {},
+    {
+      get(_, prop) {
+        if (prop === '$$typeof' || prop === 'prototype' || prop === 'constructor') {
+          return undefined;
+        }
+        const key = prefix ? `${prefix}.${prop}` : prop;
+        return resolveKey(key);
+      },
+    }
+  );
+}
+
+const strings = createProxy('');
 export default strings;

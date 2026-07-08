@@ -18,14 +18,23 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # OAuth2 scheme (kept for /docs /redoc compatibility)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
+# bcrypt 4.x rejects passwords longer than 72 bytes.  Guard both directions so
+# an over-long password fails cleanly instead of raising ValueError (W4-4:
+# bcrypt unpinned from 3.2.2).
+BCRYPT_MAX_BYTES = 72
+
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against a hashed password."""
+    if plain_password is None or len(plain_password.encode("utf-8")) > BCRYPT_MAX_BYTES:
+        return False
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """Hash a password."""
+    if len(password.encode("utf-8")) > BCRYPT_MAX_BYTES:
+        raise ValueError("Password is too long (max 72 bytes)")
     return pwd_context.hash(password)
 
 

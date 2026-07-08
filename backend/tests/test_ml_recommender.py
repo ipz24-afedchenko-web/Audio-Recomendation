@@ -161,6 +161,67 @@ def test_fit_clusters_respects_explicit_n_clusters(seeded_db):
     assert result["n_clusters"] == 3
 
 
+def test_genre_aware_clusters_separate_same_audio(db_session):
+    """W4-1: identical audio but different genres should not collapse into one cluster."""
+    user = User(
+        email="genre@x.com", username="genreuser",
+        hashed_password="x", is_active=True,
+    )
+    db_session.add(user)
+    db_session.flush()
+
+    feats = dict(BASE_FEATS)
+    pairs = [("rock", 0), ("jazz", 1), ("rock", 2), ("jazz", 3)]
+    for genre, idx in pairs:
+        m = Music(
+            title=f"g-{idx}", user_id=user.id,
+            file_path=f"/dev/null/g{idx}.mp3", genre=genre,
+        )
+        db_session.add(m)
+        db_session.flush()
+        af = AudioFeatures(music_id=m.id, **feats)
+        db_session.add(af)
+    db_session.commit()
+
+    rec = MLRecommender(n_clusters=2, auto_tune=False)
+    result = rec.fit_clusters(db_session)
+    assert result["status"] == "success"
+    assert result["n_clusters"] == 2
+
+    # Group music_ids by assigned cluster.
+    by_cluster = {}
+    for af in db_session.query(AudioFeatures).all():
+        by_cluster.setdefault(af.cluster_id, []).append(af.music_id)
+    # Each cluster should contain only one genre (no mixed rock+jazz cluster).
+    for music_ids in by_cluster.values():
+        genres = {
+            db_session.query(Music).get(mid).genre for mid in music_ids
+        }
+        assert len(genres) == 1, f"Cluster mixed genres: {genres}"
+
+
+def test_load_models_discards_stale_dimension(seeded_db):
+    """W4-1: a scaler trained on the old 30-dim vector must be discarded."""
+    import joblib
+    from app.utils.audio_utils import extract_feature_vector_length
+
+    rec = MLRecommender(n_clusters=3, auto_tune=False)
+    # Persist a bogus 30-dim scaler + kmeans (pre-W4-1 shape).
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.cluster import KMeans
+    import numpy as np
+    stub_scaler = StandardScaler().fit(np.zeros((5, 30)))
+    stub_kmeans = KMeans(n_clusters=3, n_init=10).fit(np.zeros((5, 30)))
+    joblib.dump(stub_kmeans, rec._kmeans_path())
+    joblib.dump(stub_scaler, rec._scaler_path())
+
+    assert rec.load_models() is False
+    assert rec.scaler is None
+    assert rec.kmeans is None
+    # Sanity: the live feature dim is the genre-aware one.
+    assert rec._feature_dim == extract_feature_vector_length(include_genre=True)
+
+
 def test_auto_retrain_gating(seeded_db):
     rec = MLRecommender(n_clusters=3, auto_tune=False)
     rec.load_models()  # nothing on disk in test env

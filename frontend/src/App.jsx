@@ -10,6 +10,7 @@ import UploadPage from './pages/UploadPage';
 import BulkUploadPage from './pages/BulkUploadPage';
 import AnalyzePage from './pages/AnalyzePage';
 import RecommendationsPage from './pages/RecommendationsPage';
+import AdminDashboardPage from './pages/AdminDashboardPage';
 
 export default function App() {
   return (
@@ -61,6 +62,14 @@ export default function App() {
                 element={
                   <ProtectedRoute>
                     <RecommendationsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <ProtectedRoute>
+                    <AdminDashboardPage />
                   </ProtectedRoute>
                 }
               />

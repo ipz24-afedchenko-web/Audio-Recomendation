@@ -6,6 +6,63 @@ from typing import Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
+# Canonical genre vocabulary injected into the recommendation feature
+# vector (W4-1).  Keeping this a fixed, ordered list guarantees the feature
+# vector has a constant length across clustering and recommendation passes,
+# which the StandardScaler in MLRecommender depends on.  Tracks whose genre
+# is not in this list are mapped to the final "other" bucket; tracks with no
+# genre at all get an all-zero genre vector so they are not artificially
+# clustered together.
+GENRE_VOCABULARY = [
+    "rock", "pop", "metal", "jazz", "classical", "electronic",
+    "hip-hop", "rap", "country", "folk", "blues", "reggae",
+    "r&b", "soul", "punk", "indie", "ambient", "dance", "techno",
+    "house", "disco", "funk", "world", "soundtrack", "lo-fi",
+]
+
+# A few common spelling/alias normalisations so e.g. "Hip Hop" and "hip-hop"
+# collapse to the same bucket.
+_GENRE_SYNONYMS = {
+    "hip hop": "hip-hop",
+    "rnb": "r&b",
+    "rhythm and blues": "r&b",
+    "r&b": "r&b",
+    "lofi": "lo-fi",
+    "lo fi": "lo-fi",
+    "electronica": "electronic",
+}
+
+
+def _normalize_genre(genre: Optional[str]) -> Optional[str]:
+    """Lower-case, strip and apply known synonym mappings."""
+    if not genre:
+        return None
+    g = str(genre).strip().lower()
+    return _GENRE_SYNONYMS.get(g, g)
+
+
+def genre_to_vector(
+    genre: Optional[str], vocab: List[str] = GENRE_VOCABULARY
+) -> List[float]:
+    """
+    Encode a genre string into a fixed-length one-hot vector.
+
+    Length is ``len(vocab) + 1`` — the final element is the "other" bucket
+    for out-of-vocabulary genres.  A missing/empty genre yields an all-zero
+    vector (neutral, no genre signal) so unlabelled tracks are not forced
+    into a shared cluster.
+    """
+    vec = [0.0] * (len(vocab) + 1)
+    g = _normalize_genre(genre)
+    if g is None:
+        return vec
+    if g in vocab:
+        vec[vocab.index(g)] = 1.0
+    else:
+        vec[-1] = 1.0
+    return vec
+
+
 def audio_features_to_dict(af) -> Dict:
     """
     Convert an AudioFeatures ORM instance (or any object with the same
@@ -62,7 +119,16 @@ def normalize_features(features: Dict) -> Dict:
     return normalized
 
 
-def extract_feature_vector(features: Dict) -> Optional[List[float]]:
+# Sentinel marking "genre not requested" so the legacy audio-only vector
+# length (30) is preserved when callers such as GenreClassifier omit genre,
+# while MLRecommender always passes an explicit value (including None for
+# unlabelled tracks) to get the genre-aware vector.
+_UNSET = object()
+
+
+def extract_feature_vector(
+    features: Dict, genre: Optional[str] = _UNSET
+) -> Optional[List[float]]:
     """
     Extract a fixed-length feature vector from audio features for ML algorithms.
 
@@ -74,9 +140,15 @@ def extract_feature_vector(features: Dict) -> Optional[List[float]]:
     - Valence
     - Spectral centroid (normalized)
     - MFCCs (mean, first 13 coefficients)
+    - Genre (one-hot over :data:`GENRE_VOCABULARY` + "other", W4-1)
 
     Args:
         features: Dictionary of audio features
+        genre: Optional genre string.  When provided (including ``None``,
+            which yields a neutral all-zero genre block) the vector length
+            grows by ``len(GENRE_VOCABULARY) + 1`` so the recommendation
+            clusters become genre-aware.  Omit for the legacy audio-only
+            vector (e.g. GenreClassifier training).
 
     Returns:
         List of floats representing the feature vector, or None if essential features missing
@@ -132,6 +204,13 @@ def extract_feature_vector(features: Dict) -> Optional[List[float]]:
             vector.extend(mfccs_normalized)
         else:
             vector.extend([0.5] * 13)
+
+        # Genre (W4-1): one-hot over the canonical vocabulary + "other".
+        # Appended only when the caller explicitly requests it (including an
+        # explicit None for an unlabelled track) so the legacy audio-only
+        # vector length stays 30 for callers that omit the argument.
+        if genre is not _UNSET:
+            vector.extend(genre_to_vector(genre))
 
         return vector
 
@@ -241,6 +320,29 @@ def fingerprint_similarity(fp_a: List[float], fp_b: List[float]) -> float:
         return 0.0
     sim = dot / norm
     return float((sim + 1.0) / 2.0)  # [-1,1] → [0,1]
+
+
+def extract_feature_vector_length(include_genre: bool = True) -> int:
+    """
+    Return the fixed length of vectors produced by :func:`extract_feature_vector`.
+
+    Used by MLRecommender to detect and discard stale persisted scaler/KMeans
+    models that were trained on a different vector dimensionality (e.g. before
+    the genre signal was added in W4-1).
+    """
+    dummy = {
+        "tempo": 120.0,
+        "key": 0,
+        "mode": 1,
+        "energy": 0.5,
+        "valence": 0.5,
+        "spectral_centroid_mean": 1000.0,
+        "mfcc_mean": [0.0] * 20,
+    }
+    vec = extract_feature_vector(
+        dummy, genre="rock" if include_genre else _UNSET
+    )
+    return len(vec)
 
 
 def get_feature_weights() -> Dict[str, float]:

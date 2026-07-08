@@ -14,6 +14,9 @@ from app.utils.audio_utils import (
     audio_features_to_dict,
     extract_feature_vector,
     normalize_features,
+    genre_to_vector,
+    GENRE_VOCABULARY,
+    extract_feature_vector_length,
 )
 
 
@@ -99,3 +102,47 @@ def test_normalize_features_tempo_clipping():
     out = normalize_features({"tempo": 250.0, "loudness": 5.0})
     assert out["tempo_normalized"] == 1.0
     assert out["loudness_normalized"] == 1.0
+
+
+def test_genre_to_vector_known_and_unknown():
+    """Known genres one-hot; unknown genres fall into the 'other' bucket."""
+    n = len(GENRE_VOCABULARY)
+    rock = genre_to_vector("rock")
+    assert len(rock) == n + 1
+    assert rock[GENRE_VOCABULARY.index("rock")] == 1.0
+    assert sum(rock) == 1.0
+
+    # Case-insensitive + synonym normalisation.
+    assert genre_to_vector("Hip Hop") == genre_to_vector("hip-hop")
+
+    other = genre_to_vector("k-pop")
+    assert other[-1] == 1.0  # "other" bucket
+    assert sum(other) == 1.0
+
+
+def test_genre_to_vector_missing_is_neutral():
+    """No genre yields an all-zero (neutral) vector of fixed length."""
+    vec = genre_to_vector(None)
+    assert len(vec) == len(GENRE_VOCABULARY) + 1
+    assert sum(vec) == 0.0
+
+
+def test_extract_feature_vector_genre_appends_block():
+    """W4-1: passing genre grows the vector by len(vocab)+1 over the audio-only 30."""
+    feats = {
+        "tempo": 120, "key": 0, "mode": 1, "energy": 0.5,
+        "valence": 0.5, "loudness": -10,
+        "spectral_centroid_mean": 2000, "mfcc_mean": [0.0] * 20,
+    }
+    audio_only = extract_feature_vector(feats)
+    with_genre = extract_feature_vector(feats, genre="jazz")
+    assert len(audio_only) == 30
+    assert len(with_genre) == 30 + len(GENRE_VOCABULARY) + 1
+    # Audio portion (first 30) must be identical.
+    assert audio_only == with_genre[:30]
+
+
+def test_extract_feature_vector_length_helper():
+    """Helper mirrors the genre-aware length used by MLRecommender."""
+    assert extract_feature_vector_length(include_genre=True) == 30 + len(GENRE_VOCABULARY) + 1
+    assert extract_feature_vector_length(include_genre=False) == 30

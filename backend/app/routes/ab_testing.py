@@ -5,14 +5,15 @@ Tracks recommendation algorithm performance metrics (impressions, clicks, plays)
 so that the system can evaluate which algorithm delivers the best engagement.
 
 Endpoints:
-- POST /api/ab/event    — record an interaction event
-- GET  /api/ab/stats    — get CTR summary per algorithm
+- POST /api/ab/event     — record an interaction event
+- GET  /api/ab/stats     — CTR summary + significance per algorithm (W4-2)
+- POST /api/ab/promote   — promote the winning algorithm as the default (superuser)
+- GET  /api/ab/default   — current default algorithm
 """
 
 import logging
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -20,9 +21,13 @@ from app.models.algorithm_event import AlgorithmEvent
 from app.models.user import User
 from app.schemas.algorithm_event import (
     ABStatsResponse,
-    ABStatsRow,
     AlgorithmEventCreate,
     AlgorithmEventResponse,
+)
+from app.services.ab_stats import (
+    compute_ab_stats,
+    get_default_algorithm,
+    set_default_algorithm,
 )
 from app.utils.auth import get_current_active_user
 
@@ -56,36 +61,49 @@ def get_ab_stats(
     db: Session = Depends(get_db),
 ):
     """
-    Return A/B test summary: impressions, clicks, plays, and CTR per algorithm.
+    Return A/B test summary with statistical significance (W4-2).
 
-    CTR = clicks / impressions (0 if no impressions).
+    Per algorithm: impressions, clicks, plays, CTR, plus the two-proportion
+    z-test ``z_score`` / ``p_value`` / ``significant`` flag comparing the
+    best-performing algorithm against the others.  The response also carries
+    ``best_algorithm``, ``winner_significant`` and the promoted
+    ``default_algorithm``.
     """
-    rows = (
-        db.query(
-            AlgorithmEvent.algorithm,
-            func.count().filter(AlgorithmEvent.event_type == "impression").label("impressions"),
-            func.count().filter(AlgorithmEvent.event_type == "click").label("clicks"),
-            func.count().filter(AlgorithmEvent.event_type == "play").label("plays"),
+    return compute_ab_stats(db)
+
+
+@router.get("/default")
+def get_default(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Return the currently promoted default recommendation algorithm."""
+    return {"default_algorithm": get_default_algorithm(db)}
+
+
+@router.post("/promote")
+def promote_algorithm(
+    algorithm: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Promote an algorithm as the default used for normal (non A/B) requests.
+
+    Restricted to superusers.  Callers normally pass the ``best_algorithm``
+    from ``GET /api/ab/stats`` once ``winner_significant`` is true, but any
+    of the three algorithms may be promoted manually.
+    """
+    if not current_user.is_superuser:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only superusers can promote the default algorithm",
         )
-        .group_by(AlgorithmEvent.algorithm)
-        .order_by(AlgorithmEvent.algorithm)
-        .all()
-    )
-
-    total_events = (
-        db.query(func.count(AlgorithmEvent.id))
-        .scalar() or 0
-    )
-
-    stats_rows = []
-    for algo, impressions, clicks, plays in rows:
-        ctr = (clicks / impressions * 100) if impressions > 0 else 0.0
-        stats_rows.append(ABStatsRow(
-            algorithm=algo,
-            impressions=impressions,
-            clicks=clicks,
-            plays=plays,
-            ctr=round(ctr, 2),
-        ))
-
-    return ABStatsResponse(total_events=total_events, rows=stats_rows)
+    try:
+        new_default = set_default_algorithm(db, algorithm)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    return {"default_algorithm": new_default}

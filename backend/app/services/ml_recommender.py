@@ -22,7 +22,12 @@ from sqlalchemy.orm import Session
 from app.models.audio_features import AudioFeatures
 from app.models.music import Music
 from app.models.recommendation import Recommendation
-from app.utils.audio_utils import audio_features_to_dict, extract_feature_vector, fingerprint_similarity
+from app.utils.audio_utils import (
+    audio_features_to_dict,
+    extract_feature_vector,
+    fingerprint_similarity,
+    extract_feature_vector_length,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +74,8 @@ class MLRecommender:
         self.scaler: Optional[StandardScaler] = None
         self._last_fit_n_tracks: int = 0
         self._silhouette_score: Optional[float] = None
+        # Fixed dimensionality of the genre-aware feature vector (W4-1).
+        self._feature_dim: int = extract_feature_vector_length(include_genre=True)
         self._ensure_models_dir()
 
     # ------------------------------------------------------------------
@@ -113,6 +120,19 @@ class MLRecommender:
                 # We do not know the exact count from disk; assume the
                 # cluster assignments in the DB reflect the last fit.
                 # This is good enough for the auto-retrain heuristic.
+                # Discard stale models if the feature-vector dimensionality
+                # changed (e.g. the genre signal added in W4-1) — using them
+                # would crash StandardScaler.transform with a shape mismatch.
+                loaded_dim = getattr(self.scaler, "n_features_in_", None)
+                if loaded_dim is not None and loaded_dim != self._feature_dim:
+                    logger.warning(
+                        "Discarding stale models: scaler dim %s != expected %s",
+                        loaded_dim,
+                        self._feature_dim,
+                    )
+                    self.kmeans = None
+                    self.scaler = None
+                    return False
                 logger.info("Models loaded successfully from disk")
                 return True
             except Exception as e:
@@ -138,8 +158,23 @@ class MLRecommender:
         return growth >= self.AUTO_RETRAIN_GROWTH_RATIO
 
     def auto_retrain_if_needed(self, db: Session) -> Optional[Dict]:
-        """Fit clusters only when ``should_auto_retrain`` says so."""
+        """
+        Fit clusters when ``should_auto_retrain`` says so, or when we have no
+        usable model at all (e.g. stale models were discarded after a
+        feature-vector dimension change such as the genre signal in W4-1).
+        """
         if not self.should_auto_retrain(db):
+            n_tracks = db.query(AudioFeatures).count()
+            if n_tracks < self.MIN_TRACKS_FOR_CLUSTERING:
+                return None
+            if self.scaler is None or self.kmeans is None:
+                result = self.fit_clusters(db)
+                self._last_fit_n_tracks = (
+                    result.get("total_tracks", 0)
+                    if result.get("status") == "success"
+                    else 0
+                )
+                return result
             return None
         result = self.fit_clusters(db)
         self._last_fit_n_tracks = result.get("total_tracks", 0) if result.get("status") == "success" else 0
@@ -150,10 +185,19 @@ class MLRecommender:
     # ------------------------------------------------------------------
 
     def _build_feature_matrix(
-        self, features_list: List[AudioFeatures]
+        self,
+        features_list: List[AudioFeatures],
+        genre_by_music_id: Optional[Dict[int, Optional[str]]] = None,
     ) -> Tuple[np.ndarray, List[int]]:
         """
         Build a feature matrix from a list of AudioFeatures records.
+
+        Args:
+            features_list: AudioFeatures rows to vectorise.
+            genre_by_music_id: Optional map of music_id → genre string. When
+                supplied the genre signal is injected into every vector
+                (W4-1).  Looked up once per row; passing the map avoids an
+                N+1 lazy-load of the ``AudioFeatures.music`` relationship.
 
         Returns:
             (matrix, music_ids) where matrix is (N, D) and music_ids maps
@@ -164,7 +208,10 @@ class MLRecommender:
 
         for af in features_list:
             feat_dict = audio_features_to_dict(af)
-            vec = extract_feature_vector(feat_dict)
+            genre = None
+            if genre_by_music_id is not None:
+                genre = genre_by_music_id.get(af.music_id)
+            vec = extract_feature_vector(feat_dict, genre=genre)
             if vec is not None:
                 vectors.append(vec)
                 music_ids.append(af.music_id)
@@ -231,7 +278,16 @@ class MLRecommender:
         if not all_features:
             return {"status": "error", "message": "No audio features found in database"}
 
-        matrix, music_ids = self._build_feature_matrix(all_features)
+        # Resolve genre labels in a single query (W4-1) rather than lazy
+        # loading the music relationship per row.
+        music_ids_all = [af.music_id for af in all_features]
+        genre_by_id = dict(
+            db.query(Music.id, Music.genre)
+            .filter(Music.id.in_(music_ids_all))
+            .all()
+        )
+
+        matrix, music_ids = self._build_feature_matrix(all_features, genre_by_id)
 
         if len(music_ids) == 0:
             return {"status": "error", "message": "No valid feature vectors could be extracted"}
@@ -341,7 +397,8 @@ class MLRecommender:
             return []
 
         source_dict = audio_features_to_dict(source_af)
-        source_vec = extract_feature_vector(source_dict)
+        source_genre = source_af.music.genre if source_af.music else None
+        source_vec = extract_feature_vector(source_dict, genre=source_genre)
         if source_vec is None:
             return []
 
@@ -377,8 +434,14 @@ class MLRecommender:
         if not candidates:
             return []
 
-        # 3. Build candidate matrix
-        cand_matrix, cand_ids = self._build_feature_matrix(candidates)
+        # 3. Build candidate matrix (inject genre, W4-1)
+        cand_ids = [c.music_id for c in candidates]
+        cand_genre_by_id = dict(
+            db.query(Music.id, Music.genre)
+            .filter(Music.id.in_(cand_ids))
+            .all()
+        )
+        cand_matrix, cand_ids = self._build_feature_matrix(candidates, cand_genre_by_id)
         if len(cand_ids) == 0:
             return []
 

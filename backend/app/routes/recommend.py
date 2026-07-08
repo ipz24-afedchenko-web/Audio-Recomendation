@@ -24,12 +24,28 @@ from app.models.recommendation import Recommendation
 from app.models.algorithm_event import AlgorithmEvent
 from app.schemas.recommendation import RecommendationResponse, RecommendationWithMusic
 from app.utils.auth import get_current_active_user
-from app.services.ml_recommender import MLRecommender
-from app.services.genre_classifier import GenreClassifier
+from app.services.ab_stats import get_default_algorithm
 from app.services.cache import cache_get, cache_set, recommendations_cache_key
+from app.services.genre_classifier import GenreClassifier
+from app.services.ml_recommender import MLRecommender
 
 router = APIRouter(prefix="/api/recommend", tags=["recommendations"])
 logger = logging.getLogger(__name__)
+
+
+@router.get("/clusters", response_model=None)
+async def get_clusters(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get cluster distribution statistics.
+
+    Returns information about how tracks are distributed across clusters.
+    Requires that the K-Means model has been trained first.
+    """
+    recommender = MLRecommender()
+    return recommender.get_cluster_info(db)
 
 
 def _record_impressions(db: Session, user_id: int, algorithm: int, source_music_id: int, recommended_ids: list[int]) -> None:
@@ -55,11 +71,15 @@ async def get_recommendations(
     music_id: int,
     background_tasks: BackgroundTasks,
     limit: int = Query(default=10, ge=1, le=50),
-    algorithm: int = Query(default=3, ge=1, le=3, description="1=cosine, 2=euclidean, 3=cluster-aware"),
+    algorithm: int | None = Query(default=None, ge=1, le=3, description="1=cosine, 2=euclidean, 3=cluster-aware. Omit to use the promoted default algorithm (W4-2)."),
     ab_test: bool = Query(default=False, description="Ignore algorithm param and randomly assign one for A/B testing"),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
+    # Resolve the effective algorithm.  An explicit value always wins; when
+    # omitted we fall back to the promoted default (W4-2), else 3.
+    if algorithm is None:
+        algorithm = get_default_algorithm(db)
     """
     Get music recommendations based on a source track.
 
@@ -240,21 +260,6 @@ async def train_models(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Model training failed: {str(e)}"
         )
-
-
-@router.get("/clusters", response_model=None)
-async def get_clusters(
-    current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
-):
-    """
-    Get cluster distribution statistics.
-
-    Returns information about how tracks are distributed across clusters.
-    Requires that the K-Means model has been trained first.
-    """
-    recommender = MLRecommender()
-    return recommender.get_cluster_info(db)
 
 
 @router.post("/train-genre")

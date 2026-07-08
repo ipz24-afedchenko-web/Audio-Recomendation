@@ -95,9 +95,12 @@
   Without it, `ai_tagger` raises and `/api/music/auto-tag` returns 503.
 - **`DEBUG=True`** is auto-disabled in `production` / `staging`; do not
   rely on SQL echo being on.
-- **`bcrypt` pinned to `==3.2.2`** in `requirements.txt` because
-  `passlib==1.7.4` is incompatible with `bcrypt>=4.0.0` (password length
-  check added in bcrypt 4.x).  To upgrade: confirm passlib compat first.
+- **`bcrypt` pinned to `>=4.0.1`** in `requirements.txt` (was `==3.2.2`).
+  Compat with `passlib==1.7.4` was confirmed (W4-4): `CryptContext` hashing
+  and verification work under bcrypt 4.x.  `get_password_hash` /
+  `verify_password` in `app/utils/auth.py` guard the 72-byte length limit
+  that bcrypt 4.x enforces, so over-long passwords fail cleanly instead of
+  raising `ValueError`.
 
 ---
 
@@ -142,7 +145,7 @@
 
 ## 5. Testing
 
-- `cd backend && pytest` — runs **74 tests** in ~10 s.
+- `cd backend && pytest` — runs **176 tests** in ~18 s.
 - Tests use **SQLite in-memory** via `StaticPool`; no Postgres or
   Docker required.
 - The shared `client` fixture already overrides the `get_db`
@@ -157,7 +160,7 @@
 
 Run before every commit:
 ```bash
-cd backend && pytest -q          # all 74 must pass
+cd backend && pytest -q          # all 176 must pass
 cd backend && ruff check app/    # lint check
 cd frontend && npm run build     # vite production build
 ```

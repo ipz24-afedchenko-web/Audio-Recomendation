@@ -23,6 +23,20 @@ def test_password_hash_roundtrip():
     assert not verify_password("wrong", h)
 
 
+def test_long_password_rejected_on_hash():
+    # bcrypt 4.x rejects passwords > 72 bytes.
+    over_long = "x" * 100
+    import pytest as _pytest
+    with _pytest.raises(ValueError):
+        get_password_hash(over_long)
+
+
+def test_long_password_fails_verify_cleanly():
+    # verify must not raise on an over-long password — just return False.
+    h = get_password_hash("short-enough-pw")
+    assert verify_password("x" * 100, h) is False
+
+
 def test_token_contains_sub_and_exp():
     token = create_access_token(data={"sub": "alice"})
     payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
