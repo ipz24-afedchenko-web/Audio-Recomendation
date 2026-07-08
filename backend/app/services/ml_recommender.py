@@ -14,6 +14,7 @@ from typing import List, Dict, Optional, Tuple
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 import joblib
 from sqlalchemy.orm import Session
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.models.audio_features import AudioFeatures
 from app.models.music import Music
 from app.models.recommendation import Recommendation
-from app.utils.audio_utils import extract_feature_vector
+from app.utils.audio_utils import audio_features_to_dict, extract_feature_vector, fingerprint_similarity
 
 logger = logging.getLogger(__name__)
 
@@ -48,16 +49,26 @@ class MLRecommender:
     DEFAULT_N_CLUSTERS = 8
     DEFAULT_TOP_N = 10
 
+    # Auto-retrain thresholds.  Fit a new KMeans only when the corpus
+    # has grown by at least this fraction since the last fit, OR when
+    # fewer than MIN_TRACKS_FOR_CLUSTERING tracks existed (i.e. first fit).
+    AUTO_RETRAIN_GROWTH_RATIO = 0.25
+    MIN_TRACKS_FOR_CLUSTERING = 5
+
     def __init__(
         self,
         n_clusters: int = DEFAULT_N_CLUSTERS,
         random_state: int = 42,
+        auto_tune: bool = True,
     ):
         self.n_clusters = n_clusters
         self.random_state = random_state
+        self.auto_tune = auto_tune
 
         self.kmeans: Optional[KMeans] = None
         self.scaler: Optional[StandardScaler] = None
+        self._last_fit_n_tracks: int = 0
+        self._silhouette_score: Optional[float] = None
         self._ensure_models_dir()
 
     # ------------------------------------------------------------------
@@ -99,6 +110,9 @@ class MLRecommender:
                 self.kmeans = joblib.load(kmeans_path)
                 self.scaler = joblib.load(scaler_path)
                 self.n_clusters = self.kmeans.n_clusters
+                # We do not know the exact count from disk; assume the
+                # cluster assignments in the DB reflect the last fit.
+                # This is good enough for the auto-retrain heuristic.
                 logger.info("Models loaded successfully from disk")
                 return True
             except Exception as e:
@@ -107,22 +121,33 @@ class MLRecommender:
         return False
 
     # ------------------------------------------------------------------
-    # Feature extraction helpers
+    # Auto-retrain heuristic
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _features_to_dict(af: AudioFeatures) -> Dict:
-        """Convert an AudioFeatures ORM instance to a plain dict."""
-        return {
-            "tempo": af.tempo,
-            "key": af.key,
-            "mode": af.mode,
-            "energy": af.energy,
-            "valence": af.valence,
-            "loudness": af.loudness,
-            "spectral_centroid_mean": af.spectral_centroid_mean,
-            "mfcc_mean": af.mfcc_mean,
-        }
+    def should_auto_retrain(self, db: Session) -> bool:
+        """
+        Return True when the corpus has grown enough to justify a fresh
+        K-Means fit.  Cheap to call — just counts rows.
+        """
+        n_tracks = db.query(AudioFeatures).count()
+        if n_tracks < self.MIN_TRACKS_FOR_CLUSTERING:
+            return False
+        if self._last_fit_n_tracks == 0:
+            return True
+        growth = (n_tracks - self._last_fit_n_tracks) / max(self._last_fit_n_tracks, 1)
+        return growth >= self.AUTO_RETRAIN_GROWTH_RATIO
+
+    def auto_retrain_if_needed(self, db: Session) -> Optional[Dict]:
+        """Fit clusters only when ``should_auto_retrain`` says so."""
+        if not self.should_auto_retrain(db):
+            return None
+        result = self.fit_clusters(db)
+        self._last_fit_n_tracks = result.get("total_tracks", 0) if result.get("status") == "success" else 0
+        return result
+
+    # ------------------------------------------------------------------
+    # Feature extraction helpers
+    # ------------------------------------------------------------------
 
     def _build_feature_matrix(
         self, features_list: List[AudioFeatures]
@@ -138,7 +163,7 @@ class MLRecommender:
         music_ids: List[int] = []
 
         for af in features_list:
-            feat_dict = self._features_to_dict(af)
+            feat_dict = audio_features_to_dict(af)
             vec = extract_feature_vector(feat_dict)
             if vec is not None:
                 vectors.append(vec)
@@ -148,6 +173,43 @@ class MLRecommender:
             return np.array([]), []
 
         return np.array(vectors, dtype=np.float64), music_ids
+
+    # ------------------------------------------------------------------
+    # Optimal K search
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _find_optimal_clusters(
+        matrix_scaled: np.ndarray,
+        max_k: Optional[int] = None,
+        random_state: int = 42,
+    ) -> Tuple[int, float]:
+        """
+        Find the optimal number of clusters via silhouette score.
+
+        Searches k from 2 to ``max_k`` (default: sqrt(N), clamped to
+        N-1) and returns the k with the highest score.
+
+        Returns:
+            (optimal_k, silhouette_score)
+        """
+        n_samples = matrix_scaled.shape[0]
+        if max_k is None:
+            max_k = min(int(np.sqrt(n_samples)), n_samples - 1)
+        max_k = min(max_k, n_samples - 1)
+        if max_k < 2:
+            return 1, -1.0
+
+        best_k = 2
+        best_score = -1.0
+        for k in range(2, max_k + 1):
+            km = KMeans(n_clusters=k, random_state=random_state, n_init=10)
+            labels = km.fit_predict(matrix_scaled)
+            score = silhouette_score(matrix_scaled, labels)
+            if score > best_score:
+                best_score = score
+                best_k = k
+        return best_k, float(best_score)
 
     # ------------------------------------------------------------------
     # Clustering
@@ -174,12 +236,21 @@ class MLRecommender:
         if len(music_ids) == 0:
             return {"status": "error", "message": "No valid feature vectors could be extracted"}
 
-        # Adjust n_clusters if we have fewer samples than clusters
-        effective_clusters = min(self.n_clusters, len(music_ids))
-
         # Fit scaler
         self.scaler = StandardScaler()
         matrix_scaled = self.scaler.fit_transform(matrix)
+
+        # Determine number of clusters
+        if self.auto_tune and len(music_ids) >= 4:
+            optimal_k, sil_score = self._find_optimal_clusters(
+                matrix_scaled,
+                max_k=min(self.n_clusters, len(music_ids) - 1),
+                random_state=self.random_state,
+            )
+            effective_clusters = optimal_k
+            self._silhouette_score = sil_score
+        else:
+            effective_clusters = min(self.n_clusters, len(music_ids))
 
         # Fit K-Means
         self.kmeans = KMeans(
@@ -197,6 +268,7 @@ class MLRecommender:
                 af.cluster_id = music_id_to_label[af.music_id]
 
         db.commit()
+        self._last_fit_n_tracks = len(music_ids)
 
         # Save models to disk
         self.save_models()
@@ -207,19 +279,25 @@ class MLRecommender:
             cluster_counts[int(label)] = cluster_counts.get(int(label), 0) + 1
 
         inertia = float(self.kmeans.inertia_)
+        sil_score = self._silhouette_score
 
-        logger.info(
+        log_parts = [
             "K-Means training complete: %d tracks, %d clusters, inertia=%.2f",
             len(music_ids),
             effective_clusters,
             inertia,
-        )
+        ]
+        if sil_score is not None:
+            log_parts[0] += ", silhouette=%.3f"
+            log_parts.append(sil_score)
+        logger.info(*log_parts)
 
         return {
             "status": "success",
             "total_tracks": len(music_ids),
             "n_clusters": effective_clusters,
             "inertia": inertia,
+            "silhouette_score": sil_score,
             "cluster_distribution": cluster_counts,
         }
 
@@ -237,6 +315,11 @@ class MLRecommender:
     ) -> List[Dict]:
         """
         Generate recommendations for a given track.
+
+        History semantics: the *current* (source_music, user, algorithm)
+        triple is upserted — old rows for the same triple are deleted
+        first so callers always see the latest ranking.  Rows for other
+        algorithms or other users are preserved (analytics use case).
 
         Args:
             music_id: Source track ID.
@@ -257,7 +340,7 @@ class MLRecommender:
         if source_af is None:
             return []
 
-        source_dict = self._features_to_dict(source_af)
+        source_dict = audio_features_to_dict(source_af)
         source_vec = extract_feature_vector(source_dict)
         if source_vec is None:
             return []
@@ -266,7 +349,6 @@ class MLRecommender:
 
         # 2. Select candidate pool
         if algorithm == 3 and source_af.cluster_id is not None:
-            # Cluster-aware: first try same cluster, expand if too few
             candidates = (
                 db.query(AudioFeatures)
                 .filter(
@@ -275,7 +357,6 @@ class MLRecommender:
                 )
                 .all()
             )
-            # If not enough candidates in same cluster, add neighbouring clusters
             if len(candidates) < limit:
                 extra = (
                     db.query(AudioFeatures)
@@ -311,28 +392,42 @@ class MLRecommender:
 
         # 5. Compute similarity / distance
         if algorithm == 2:
-            # Euclidean distance → convert to similarity
             diffs = cand_scaled - source_scaled
             distances = np.linalg.norm(diffs, axis=1)
             max_dist = distances.max() if distances.max() > 0 else 1.0
             scores = 1.0 - (distances / max_dist)
         else:
-            # Cosine similarity (algorithm 1 or 3)
             sim_matrix = cosine_similarity(source_scaled, cand_scaled)
             scores = sim_matrix[0]
-            # Normalize from [-1,1] to [0,1]
             scores = (scores + 1.0) / 2.0
 
         # 6. Rank and take top-N
         ranked_indices = np.argsort(scores)[::-1][:limit]
 
-        # 7. Build result list and persist recommendations
+        # 7. UPSERT semantics: drop only the rows for THIS (user, source,
+        # algorithm) triple, then insert the new top-N.  History for other
+        # algorithms / sources is preserved.
+        db.query(Recommendation).filter(
+            Recommendation.user_id == user_id,
+            Recommendation.source_music_id == music_id,
+            Recommendation.algorithm == algorithm,
+        ).delete(synchronize_session=False)
+        db.flush()
+
+        # 8. Build result list.  We deliberately do NOT query Music once
+        # per row — instead we batch-load all recommended tracks in a
+        # single query (eliminates the N+1 from the previous version).
+        top_ids = [cand_ids[idx] for idx in ranked_indices]
+        music_by_id: Dict[int, Music] = {
+            m.id: m
+            for m in db.query(Music).filter(Music.id.in_(top_ids)).all()
+        }
+
         results: List[Dict] = []
         for idx in ranked_indices:
             cand_music_id = cand_ids[idx]
             similarity_score = float(np.clip(scores[idx], 0.0, 1.0))
 
-            # Save Recommendation record
             rec = Recommendation(
                 user_id=user_id,
                 source_music_id=music_id,
@@ -342,17 +437,12 @@ class MLRecommender:
             )
             db.add(rec)
 
-            # Load music metadata for response
-            recommended_music = (
-                db.query(Music).filter(Music.id == cand_music_id).first()
-            )
-
             results.append(
                 {
                     "recommended_music_id": cand_music_id,
                     "similarity_score": similarity_score,
                     "algorithm": algorithm,
-                    "recommended_music": recommended_music,
+                    "recommended_music": music_by_id.get(cand_music_id),
                 }
             )
 
@@ -365,6 +455,68 @@ class MLRecommender:
             algorithm,
         )
 
+        return results
+
+    # ------------------------------------------------------------------
+    # Perceptual deduplication (format-robust)
+    # ------------------------------------------------------------------
+
+    PERCEPTUAL_DUP_THRESHOLD = 0.92
+
+    def find_perceptual_duplicates(
+        self,
+        music_id: int,
+        db: Session,
+        user_id: int,
+        threshold: float = PERCEPTUAL_DUP_THRESHOLD,
+    ) -> List[Dict]:
+        """
+        Find tracks that sound like the same recording (different format
+        or bitrate) by comparing perceptual fingerprints.
+
+        The fingerprint is a 64-dim mel-spectrogram vector computed
+        during audio analysis.  Two fingerprints whose cosine similarity
+        exceeds ``threshold`` are considered perceptual duplicates.
+
+        Returns a list of dicts with keys:
+            music_id, title, artist, file_path, similarity, file_hash
+        """
+        source_af = (
+            db.query(AudioFeatures)
+            .filter(AudioFeatures.music_id == music_id)
+            .first()
+        )
+        if source_af is None or source_af.perceptual_fingerprint is None:
+            return []
+
+        candidates = (
+            db.query(AudioFeatures)
+            .join(Music, AudioFeatures.music_id == Music.id)
+            .filter(
+                AudioFeatures.music_id != music_id,
+                AudioFeatures.perceptual_fingerprint.isnot(None),
+                Music.user_id == user_id,
+            )
+            .all()
+        )
+
+        results: List[Dict] = []
+        for af in candidates:
+            sim = fingerprint_similarity(
+                source_af.perceptual_fingerprint,
+                af.perceptual_fingerprint,
+            )
+            if sim >= threshold:
+                m = af.music
+                results.append({
+                    "music_id": af.music_id,
+                    "title": m.title if m else None,
+                    "artist": m.artist if m else None,
+                    "file_hash": m.file_hash if m else None,
+                    "similarity": round(sim, 4),
+                })
+
+        results.sort(key=lambda r: r["similarity"], reverse=True)
         return results
 
     # ------------------------------------------------------------------

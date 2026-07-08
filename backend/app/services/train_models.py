@@ -29,15 +29,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def train_clusters(n_clusters: int = 8) -> None:
+def train_clusters(n_clusters: int = 8, auto_tune: bool = True) -> None:
     """Train K-Means clustering model."""
     logger.info("=" * 60)
-    logger.info("Training K-Means clustering (n_clusters=%d)", n_clusters)
+    logger.info("Training K-Means clustering (n_clusters=%d, auto_tune=%s)", n_clusters, auto_tune)
     logger.info("=" * 60)
 
     db = SessionLocal()
     try:
-        recommender = MLRecommender(n_clusters=n_clusters)
+        recommender = MLRecommender(n_clusters=n_clusters, auto_tune=auto_tune)
         result = recommender.fit_clusters(db)
 
         if result["status"] == "success":
@@ -45,6 +45,8 @@ def train_clusters(n_clusters: int = 8) -> None:
             logger.info("   Total tracks: %d", result["total_tracks"])
             logger.info("   Clusters: %d", result["n_clusters"])
             logger.info("   Inertia: %.2f", result["inertia"])
+            if result.get("silhouette_score") is not None:
+                logger.info("   Silhouette: %.3f", result["silhouette_score"])
             logger.info("   Distribution: %s", result["cluster_distribution"])
         else:
             logger.error("❌ Clustering failed: %s", result.get("message", "Unknown error"))
@@ -101,7 +103,12 @@ def main() -> None:
         "--clusters",
         type=int,
         default=8,
-        help="Number of K-Means clusters (default: 8)",
+        help="Number of K-Means clusters (ignored if --no-auto-tune is not set)",
+    )
+    parser.add_argument(
+        "--no-auto-tune",
+        action="store_true",
+        help="Disable automatic k selection (uses --clusters value literally)",
     )
     parser.add_argument(
         "--genre",
@@ -121,8 +128,10 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    auto_tune = not args.no_auto_tune
+
     if args.all:
-        train_clusters(args.clusters)
+        train_clusters(args.clusters, auto_tune=auto_tune)
         print()
         train_genre_classifier()
         print()
@@ -133,7 +142,7 @@ def main() -> None:
         predict_genres()
     else:
         # Default: train clusters
-        train_clusters(args.clusters)
+        train_clusters(args.clusters, auto_tune=auto_tune)
 
     logger.info("Done!")
 

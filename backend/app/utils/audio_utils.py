@@ -1,5 +1,31 @@
+import librosa
+import logging
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+def audio_features_to_dict(af) -> Dict:
+    """
+    Convert an AudioFeatures ORM instance (or any object with the same
+    attributes) into a plain dict used for ML vector extraction.
+
+    Centralised here so MLRecommender, GenreClassifier and any future
+    consumers stay in sync.  Pass-through of None for missing columns
+    is intentional — the downstream ``extract_feature_vector`` handles
+    missing values.
+    """
+    return {
+        "tempo": getattr(af, "tempo", None),
+        "key": getattr(af, "key", None),
+        "mode": getattr(af, "mode", None),
+        "energy": getattr(af, "energy", None),
+        "valence": getattr(af, "valence", None),
+        "loudness": getattr(af, "loudness", None),
+        "spectral_centroid_mean": getattr(af, "spectral_centroid_mean", None),
+        "mfcc_mean": getattr(af, "mfcc_mean", None),
+    }
 
 
 def normalize_features(features: Dict) -> Dict:
@@ -110,7 +136,7 @@ def extract_feature_vector(features: Dict) -> Optional[List[float]]:
         return vector
 
     except Exception as e:
-        print(f"Error extracting feature vector: {str(e)}")
+        logger.warning("Error extracting feature vector: %s", str(e))
         return None
 
 
@@ -151,8 +177,70 @@ def calculate_feature_similarity(features1: Dict, features2: Dict) -> Optional[f
         return float(similarity_normalized)
 
     except Exception as e:
-        print(f"Error calculating feature similarity: {str(e)}")
+        logger.warning("Error calculating feature similarity: %s", str(e))
         return None
+
+
+# ------------------------------------------------------------------
+# Perceptual fingerprint (format-robust audio identification)
+# ------------------------------------------------------------------
+
+FINGERPRINT_N_MELS = 32
+FINGERPRINT_DURATION = 30  # seconds — enough to identify a song
+
+
+def compute_perceptual_fingerprint(y: np.ndarray, sr: int) -> Optional[List[float]]:
+    """
+    Build a compact perceptual fingerprint from an audio signal.
+
+    The fingerprint is a 64-dimensional vector (mean + std of a 32-band
+    mel-spectrogram over the first ``FINGERPRINT_DURATION`` seconds).
+    Because it operates on the perceptual mel scale, it is robust to
+    different audio encodings (MP3 vs WAV), bitrates, and small EQ
+    differences.
+
+    Returns None if the audio is too short to fingerprint.
+    """
+    try:
+        # Take only the first N seconds
+        max_samples = int(FINGERPRINT_DURATION * sr)
+        if len(y) < sr:  # less than 1 second — too short
+            return None
+        y_segment = y[:max_samples]
+
+        # Mel-spectrogram
+        mel = librosa.feature.melspectrogram(
+            y=y_segment, sr=sr,
+            n_mels=FINGERPRINT_N_MELS,
+            fmax=sr // 2,
+        )
+        log_mel = librosa.power_to_db(mel, ref=np.max)
+
+        # Mean + std across time → 64-dim vector
+        fp_mean = np.mean(log_mel, axis=1).tolist()
+        fp_std = np.std(log_mel, axis=1).tolist()
+
+        return fp_mean + fp_std
+    except Exception as e:
+        logger.warning("Error computing perceptual fingerprint: %s", str(e))
+        return None
+
+
+def fingerprint_similarity(fp_a: List[float], fp_b: List[float]) -> float:
+    """
+    Cosine similarity between two perceptual fingerprints.
+
+    Returns 0.0–1.0.  Values above 0.92 generally indicate the same
+    recording (different encodings or bitrates).
+    """
+    a = np.array(fp_a, dtype=np.float64)
+    b = np.array(fp_b, dtype=np.float64)
+    dot = np.dot(a, b)
+    norm = np.linalg.norm(a) * np.linalg.norm(b)
+    if norm == 0:
+        return 0.0
+    sim = dot / norm
+    return float((sim + 1.0) / 2.0)  # [-1,1] → [0,1]
 
 
 def get_feature_weights() -> Dict[str, float]:

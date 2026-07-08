@@ -92,3 +92,14 @@ Thumbs.db
 
 # Jupyter
 .ipynb_checkpoints/
+
+# Local AI tooling / editor state
+.opencode/
+.playwright-mcp/
+
+# Office temp lock files
+~$*.docx
+~$*.doc
+
+# One-off report generator script
+build_report.py

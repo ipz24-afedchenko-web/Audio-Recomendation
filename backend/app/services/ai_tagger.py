@@ -8,12 +8,15 @@ import os
 import re
 import time
 import json
+import logging
 from typing import Optional, Dict, Any
 from pathlib import Path
 
 import musicbrainzngs
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger(__name__)
 
 
 class AITagger:
@@ -224,7 +227,7 @@ Return only the artist and title."""
 
         except Exception as e:
             # Log error but don't crash
-            print(f"MusicBrainz API error: {e}")
+            logger.error("MusicBrainz API error: %s", str(e))
             return None
 
     def fetch_genre_with_ai(self, artist: str, title: str) -> Optional[str]:
@@ -258,7 +261,7 @@ Use standard genre names. Return at most 3 genres. No explanation."""
             genre = result.get("genre", "").strip()
             return genre if genre else None
         except Exception as e:
-            print(f"Gemini genre prediction error: {e}")
+            logger.error("Gemini genre prediction error: %s", str(e))
             return None
 
     def _respect_rate_limit(self):
@@ -317,13 +320,23 @@ Use standard genre names. Return at most 3 genres. No explanation."""
             }
 
 
-# Singleton instance
+# Singleton instance + the env key it was created with.  We rebind the
+# instance only if the env var actually changes (e.g. tests / rotations),
+# NOT on every request — the previous implementation called os.getenv on
+# every get_ai_tagger() invocation, which was both wasteful and a TOCTOU
+# footgun.
 _tagger_instance: Optional[AITagger] = None
+_tagger_env_key: Optional[str] = None
 
 
 def get_ai_tagger() -> AITagger:
-    """Get or create the AI tagger singleton instance."""
-    global _tagger_instance
-    if _tagger_instance is None or not os.getenv("GEMINI_API_KEY"):
+    """
+    Return the process-wide AITagger instance, rebuilding it only when
+    ``GEMINI_API_KEY`` actually changes since the last call.
+    """
+    global _tagger_instance, _tagger_env_key
+    current_key = os.getenv("GEMINI_API_KEY")
+    if _tagger_instance is None or _tagger_env_key != current_key:
         _tagger_instance = AITagger()
+        _tagger_env_key = current_key
     return _tagger_instance

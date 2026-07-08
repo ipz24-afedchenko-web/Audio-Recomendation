@@ -1,0 +1,99 @@
+@startuml Audio_Recommender_UseCases
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+skinparam usecase {
+  BackgroundColor #F5F5F5
+  BorderColor #333333
+  FontSize 13
+  FontName Times New Roman
+}
+skinparam actor {
+  FontSize 14
+  FontName Times New Roman
+}
+skinparam rectangle {
+  FontSize 14
+  FontName Times New Roman
+  BorderColor #2C3E50
+}
+skinparam note {
+  FontSize 12
+  FontName Times New Roman
+}
+
+title Діаграма прецедентів\nAudio-Based Music Recommender
+
+rectangle "Система Audio-Based Music Recommender" {
+
+  usecase "Реєстрація" as UC1
+  usecase "Вхід у систему" as UC2
+  usecase "Перегляд профілю" as UC3
+
+  usecase "Завантаження\nаудіофайлу" as UC4
+  usecase "Масове\nзавантаження" as UC5
+  usecase "Видалення\nтреку" as UC6
+  usecase "Редагування\nметаданих" as UC7
+
+  usecase "Автоматичне\nтегування (AI)" as UC8
+  usecase "Аналіз\nаудіоознак" as UC9
+  usecase "Перегляд\nдіаграм" as UC10
+
+  usecase "Отримання\nрекомендацій" as UC11
+  usecase "Тренування\nмоделі" as UC12
+  usecase "Класифікація\nжанрів" as UC13
+}
+
+rectangle "Зовнішні сервіси" as ExtServices {
+  usecase "Google Gemini\n( AI теги )" as UC_GEMINI
+  usecase "MusicBrainz\n( метадані )" as UC_MBRAINZ
+}
+
+actor "Користувач" as User
+actor "Адміністратор" as Admin
+
+User --> UC1
+User --> UC2
+User --> UC3
+
+User --> UC4
+User --> UC5
+User --> UC6
+User --> UC7
+
+User --> UC8
+User --> UC9
+User --> UC10
+
+User --> UC11
+User --> UC12
+User --> UC13
+
+Admin --|> User
+Admin --> UC12
+
+UC8 ..> UC_GEMINI : <<uses>>
+UC8 ..> UC_MBRAINZ : <<uses>>
+UC4 ..> UC9 : <<include>>
+UC5 ..> UC4 : <<include>>
+
+UC12 ..> UC11 : <<extend>>
+
+note right of UC2
+  JWT-автентифікація
+  bcrypt + token
+end note
+
+note bottom of UC8
+  Google Gemini 2.5 Flash
+  + MusicBrainz API
+  rate-limiting: 1 req/s
+end note
+
+note bottom of UC11
+  K-Means кластеризація
+  cosine / euclidean
+  cluster-aware similarity
+end note
+
+@enduml

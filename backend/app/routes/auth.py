@@ -1,9 +1,10 @@
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.database import get_db, get_settings
+from app.limiter import limiter
 from app.models.user import User
 from app.schemas.user import UserCreate, UserResponse, Token
 from app.utils.auth import (
@@ -19,16 +20,38 @@ router = APIRouter(prefix="/api/auth", tags=["authentication"])
 settings = get_settings()
 
 
+def _set_token_cookie(response: Response, token: str) -> None:
+    """Set JWT as an httpOnly cookie.
+
+    Secure flag is off in development (*.local, localhost) so the cookie
+    works over plain HTTP during local development; production must use
+    HTTPS and the NODE_ENV / ENVIRONMENT variable to toggle secure=True.
+    """
+    is_secure = settings.environment not in ("development", "test")
+    response.set_cookie(
+        key="access_token",
+        value=token,
+        httponly=True,
+        secure=is_secure,
+        samesite="lax",
+        max_age=settings.access_token_expire_minutes * 60,
+        path="/",
+    )
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(user: UserCreate, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def register(
+    request: Request,
+    response: Response,
+    user: UserCreate,
+    db: Session = Depends(get_db)
+):
     """
     Register a new user.
 
-    - **email**: User email (must be unique)
-    - **username**: Username (must be unique)
-    - **password**: Password (min 8 characters)
+    Sets an httpOnly JWT cookie so the client is logged in immediately.
     """
-    # Check if user with email already exists
     db_user = get_user_by_email(db, email=user.email)
     if db_user:
         raise HTTPException(
@@ -36,7 +59,6 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
             detail="Email already registered"
         )
 
-    # Check if user with username already exists
     db_user = get_user_by_username(db, username=user.username)
     if db_user:
         raise HTTPException(
@@ -44,7 +66,6 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
             detail="Username already taken"
         )
 
-    # Create new user
     hashed_password = get_password_hash(user.password)
     db_user = User(
         email=user.email,
@@ -55,21 +76,27 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_user)
 
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    _set_token_cookie(response, access_token)
+
     return db_user
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 def login(
+    request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db)
 ):
     """
-    Login with username and password to get access token.
+    Login with username and password.
 
-    - **username**: Username
-    - **password**: Password
-
-    Returns JWT access token.
+    Returns JWT in the response body AND sets an httpOnly cookie.
     """
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
@@ -84,7 +111,20 @@ def login(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
 
+    _set_token_cookie(response, access_token)
+
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(response: Response):
+    """Clear the httpOnly JWT cookie."""
+    response.delete_cookie(
+        key="access_token",
+        path="/",
+        httponly=True,
+        samesite="lax",
+    )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -92,6 +132,6 @@ async def get_me(current_user: User = Depends(get_current_active_user)):
     """
     Get current authenticated user information.
 
-    Requires authentication token.
+    Reads JWT from Authorization header or httpOnly cookie.
     """
     return current_user

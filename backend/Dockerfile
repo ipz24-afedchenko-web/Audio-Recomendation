@@ -19,6 +19,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
+# Run lint check (non-blocking — reports issues without failing the build)
+RUN ruff check . --exit-zero
+
 # Create directory for uploaded audio files
 RUN mkdir -p /app/uploads
 
@@ -29,4 +32,4 @@ RUN mkdir -p /app/models
 EXPOSE 8000
 
 # Run migrations and start server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2"]

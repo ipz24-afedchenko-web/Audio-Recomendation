@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { musicAPI } from '../services/api';
+import strings from '../strings';
 
 /* ── Status constants ── */
 const STATUS = {
@@ -8,7 +9,12 @@ const STATUS = {
   TAGGING: 'tagging',
   TAGGED: 'tagged',
   UPLOADING: 'uploading',
+  // Set after the server accepted the file but before its background
+  // analysis finishes.  The row stays in this state until the polling
+  // helper resolves the track's final status.
+  ANALYZING: 'analyzing',
   DONE: 'done',
+  // Permanent failure (validation / network / dedup / analysis error).
   ERROR: 'error',
 };
 
@@ -39,21 +45,19 @@ function makeTrack(file) {
 /* ── Status badge ── */
 function StatusBadge({ status, error }) {
   const map = {
-    [STATUS.IDLE]:     { label: 'Очікує',       color: '#606070', bg: 'rgba(96,96,112,0.12)' },
-    [STATUS.TAGGING]:  { label: 'AI обробка…',  color: '#f39c12', bg: 'rgba(243,156,18,0.12)' },
-    [STATUS.TAGGED]:   { label: 'Готовий',       color: '#2ecc71', bg: 'rgba(46,204,113,0.12)' },
-    [STATUS.UPLOADING]:{ label: 'Завантажую…',  color: '#3498db', bg: 'rgba(52,152,219,0.12)' },
-    [STATUS.DONE]:     { label: '✓ Завантажено', color: '#2ecc71', bg: 'rgba(46,204,113,0.12)' },
-    [STATUS.ERROR]:    { label: '✗ Помилка',     color: '#e74c3c', bg: 'rgba(231,76,60,0.12)'  },
+    [STATUS.IDLE]:     { label: strings.bulk.status.idle,     color: '#606070', bg: 'rgba(96,96,112,0.12)' },
+    [STATUS.TAGGING]:  { label: strings.bulk.status.tagging,  color: '#f39c12', bg: 'rgba(243,156,18,0.12)' },
+    [STATUS.TAGGED]:   { label: strings.bulk.status.tagged,   color: '#2ecc71', bg: 'rgba(46,204,113,0.12)' },
+    [STATUS.UPLOADING]:{ label: strings.bulk.status.uploading,color: '#3498db', bg: 'rgba(52,152,219,0.12)' },
+    [STATUS.ANALYZING]:{ label: strings.bulk.status.analyzing,color: '#9b59b6', bg: 'rgba(155,89,182,0.12)' },
+    [STATUS.DONE]:     { label: strings.bulk.status.done,     color: '#2ecc71', bg: 'rgba(46,204,113,0.12)' },
+    [STATUS.ERROR]:    { label: strings.bulk.status.error,    color: '#e74c3c', bg: 'rgba(231,76,60,0.12)'  },
   };
   const s = map[status] || map[STATUS.IDLE];
   return (
-    <span title={error || ''} style={{
-      fontSize: '0.72rem', fontWeight: 600, padding: '2px 9px',
-      borderRadius: 99, background: s.bg, color: s.color,
-      whiteSpace: 'nowrap', flexShrink: 0,
-    }}>
-      {status === STATUS.TAGGING || status === STATUS.UPLOADING
+    <span title={error || ''} className="pill flex-shrink-0"
+      style={{ background: s.bg, color: s.color }}>
+      {status === STATUS.TAGGING || status === STATUS.UPLOADING || status === STATUS.ANALYZING
         ? <><SmallSpinner color={s.color} /> {s.label}</>
         : s.label}
     </span>
@@ -61,33 +65,18 @@ function StatusBadge({ status, error }) {
 }
 
 function SmallSpinner({ color = '#6c5ce7' }) {
-  return (
-    <span style={{
-      display: 'inline-block', width: 10, height: 10,
-      border: `2px solid rgba(255,255,255,0.15)`,
-      borderTopColor: color, borderRadius: '50%',
-      animation: 'spin 0.6s linear infinite', marginRight: 4,
-      verticalAlign: 'middle',
-    }} />
-  );
+  return <span className="small-spinner" style={{ borderTopColor: color }} />;
 }
 
 /* ── Progress bar ── */
 function ProgressBar({ done, total }) {
   const pct = total ? Math.round((done / total) * 100) : 0;
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{
-        flex: 1, height: 6, background: 'var(--border)',
-        borderRadius: 99, overflow: 'hidden',
-      }}>
-        <div style={{
-          height: '100%', width: `${pct}%`,
-          background: 'linear-gradient(90deg, var(--accent), #a29bfe)',
-          borderRadius: 99, transition: 'width 0.4s ease',
-        }} />
+    <div className="flex-center gap-sm">
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${pct}%` }} />
       </div>
-      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', minWidth: 40 }}>
+      <span className="text-xs text-muted progress-label">
         {done}/{total}
       </span>
     </div>
@@ -98,57 +87,53 @@ function ProgressBar({ done, total }) {
 function InlineField({ value, placeholder, onChange, disabled }) {
   return (
     <input
-      className="form-input"
+      className="form-input form-input-sm"
       value={value}
       placeholder={placeholder}
       onChange={e => onChange(e.target.value)}
       disabled={disabled}
-      style={{ padding: '5px 9px', fontSize: '0.8rem', height: 30 }}
     />
   );
 }
 
 /* ── Track row ── */
 function TrackRow({ track, onUpdate, onRemove, onTagOne, aiAvailable }) {
-  const busy = track.status === STATUS.TAGGING || track.status === STATUS.UPLOADING;
+  const busy =
+    track.status === STATUS.TAGGING ||
+    track.status === STATUS.UPLOADING ||
+    track.status === STATUS.ANALYZING;
   const done = track.status === STATUS.DONE;
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr 1fr auto auto',
-      gap: 8, alignItems: 'center',
-      padding: '10px 14px',
+    <div className="track-row" style={{
       background: done ? 'rgba(46,204,113,0.04)' : 'var(--bg-input)',
-      borderRadius: 'var(--radius-sm)',
-      border: `1px solid ${done ? 'rgba(46,204,113,0.2)' : 'var(--border)'}`,
-      transition: 'all 0.25s ease',
+      borderColor: done ? 'rgba(46,204,113,0.2)' : 'var(--border)',
     }}>
       {/* Title */}
       <InlineField
         value={track.title}
-        placeholder="Назва"
+        placeholder={strings.bulk.placeholder.title}
         onChange={v => onUpdate('title', v)}
         disabled={busy || done}
       />
       {/* Artist */}
       <InlineField
         value={track.artist}
-        placeholder="Виконавець"
+        placeholder={strings.bulk.placeholder.artist}
         onChange={v => onUpdate('artist', v)}
         disabled={busy || done}
       />
       {/* Album */}
       <InlineField
         value={track.album}
-        placeholder="Альбом"
+        placeholder={strings.bulk.placeholder.album}
         onChange={v => onUpdate('album', v)}
         disabled={busy || done}
       />
       {/* Genre */}
       <InlineField
         value={track.genre}
-        placeholder="Жанр"
+        placeholder={strings.bulk.placeholder.genre}
         onChange={v => onUpdate('genre', v)}
         disabled={busy || done}
       />
@@ -157,14 +142,13 @@ function TrackRow({ track, onUpdate, onRemove, onTagOne, aiAvailable }) {
       <StatusBadge status={track.status} error={track.error} />
 
       {/* Actions */}
-      <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+      <div className="flex gap-xs flex-shrink-0">
         {!done && (
           <button
             className="btn btn-secondary btn-sm"
             onClick={onTagOne}
             disabled={busy || !aiAvailable}
-            title={aiAvailable ? 'AI автозаповнення' : 'AI недоступний'}
-            style={{ padding: '4px 8px', fontSize: '0.7rem' }}
+            title={aiAvailable ? strings.bulk.tooltip.aiAutoFill : strings.bulk.tooltip.aiUnavailable}
           >
             {track.status === STATUS.TAGGING
               ? <SmallSpinner />
@@ -176,8 +160,7 @@ function TrackRow({ track, onUpdate, onRemove, onTagOne, aiAvailable }) {
             className="btn btn-danger btn-sm"
             onClick={onRemove}
             disabled={busy}
-            title="Видалити"
-            style={{ padding: '4px 8px', fontSize: '0.7rem' }}
+            title={strings.bulk.tooltip.remove}
           >
             ✕
           </button>
@@ -189,18 +172,11 @@ function TrackRow({ track, onUpdate, onRemove, onTagOne, aiAvailable }) {
 
 /* ── Column headers ── */
 function TrackHeaders() {
-  const cols = ['Назва *', 'Виконавець', 'Альбом', 'Жанр', 'Статус', ''];
+  const cols = strings.bulk.columnHeaders;
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr 1fr auto auto',
-      gap: 8, padding: '0 14px 6px',
-    }}>
+    <div className="track-headers">
       {cols.map(c => (
-        <span key={c} style={{
-          fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)',
-          textTransform: 'uppercase', letterSpacing: '0.05em',
-        }}>{c}</span>
+        <span key={c} className="text-xs text-muted">{c}</span>
       ))}
     </div>
   );
@@ -279,12 +255,12 @@ export default function BulkUploadPage() {
     } catch (err) {
       patchTrack(id, {
         status: STATUS.ERROR,
-        error: err.response?.data?.detail || 'AI помилка',
+        error: err.response?.data?.detail || strings.bulk.messages.aiError,
       });
     }
   };
 
-  /* ── Auto-tag ALL idle tracks sequentially ── */
+  /* ── Auto-tag ALL idle tracks in parallel (cap 4) ── */
   const tagAll = async () => {
     if (!aiAvailable) return;
     setPhase('tagging');
@@ -294,94 +270,159 @@ export default function BulkUploadPage() {
       t.status === STATUS.IDLE || t.status === STATUS.ERROR || t.status === STATUS.TAGGED
     );
 
-    for (const track of toTag) {
-      await tagOne(track.id);
+    const CONCURRENCY = 4;
+    const results = [];
+    for (let i = 0; i < toTag.length; i += CONCURRENCY) {
+      const batch = toTag.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.allSettled(
+        batch.map(t => tagOne(t.id))
+      );
+      results.push(...batchResults);
     }
+
+    const failed = results.filter(r => r.status === 'rejected').length;
     setPhase('idle');
-    setGlobalMsg({ type: 'success', text: `✨ AI автозаповнення завершено для ${toTag.length} треків` });
+    if (failed === 0) {
+      setGlobalMsg({ type: 'success', text: strings.bulk.messages.tagSuccess(toTag.length) });
+    } else {
+      setGlobalMsg({ type: 'error', text: strings.bulk.messages.tagPartial(toTag.length - failed, failed) });
+    }
   };
 
-  /* ── Upload a single track ── */
-  const uploadOne = async (id) => {
-    const track = tracks.find(t => t.id === id);
-    if (!track || track.status === STATUS.DONE) return;
+/* ── Upload a single track ── */
+const uploadOne = async (id) => {
+  const track = tracks.find(t => t.id === id);
+  if (!track || track.status === STATUS.DONE) return;
 
-    patchTrack(id, { status: STATUS.UPLOADING, error: null });
+  patchTrack(id, { status: STATUS.UPLOADING, error: null });
 
-    try {
-      const fd = new FormData();
-      fd.append('file', track.file);
-      fd.append('title', track.title || track.file.name);
-      if (track.artist) fd.append('artist', track.artist);
-      if (track.album)  fd.append('album',  track.album);
-      if (track.genre)  fd.append('genre',  track.genre);
+  try {
+    const fd = new FormData();
+    fd.append('file', track.file);
+    fd.append('title', track.title || track.file.name);
+    if (track.artist) fd.append('artist', track.artist);
+    if (track.album)  fd.append('album',  track.album);
+    if (track.genre)  fd.append('genre',  track.genre);
 
-      const res = await musicAPI.upload(fd);
-      patchTrack(id, { status: STATUS.DONE, uploadedId: res.data.id });
-    } catch (err) {
-      patchTrack(id, {
+    const res = await musicAPI.upload(fd);
+    const newId = res.data.id;
+    patchTrack(id, {
+      status: STATUS.ANALYZING,
+      uploadedId: newId,
+    });
+
+    // Kick off background analysis polling.  We don't await this here
+    // because the bulk uploader fires many uploads in parallel; the
+    // status badge will tick from "Аналіз…" to "✓ Завантажено" on its
+    // own once the server's analysis BackgroundTask finishes.
+    pollUntilDone(id, newId);
+  } catch (err) {
+    const status = err.response?.status;
+    let msg;
+    if (status === 409) {
+      msg = strings.bulk.messages.dupError(err.response.data.detail);
+    } else {
+      msg = err.response?.data?.detail || strings.bulk.messages.uploadError;
+    }
+    patchTrack(id, { status: STATUS.ERROR, error: msg });
+  }
+};
+
+/* ── Poll server until analysis finishes ── */
+const pollUntilDone = async (localId, serverId) => {
+  try {
+    const final = await musicAPI.waitForAnalysis(serverId, {
+      intervalMs: 2000,
+      timeoutMs: 120_000,
+    });
+    if (final.analysis_status === 'ready') {
+      patchTrack(localId, { status: STATUS.DONE });
+    } else if (final.analysis_status === 'error') {
+      patchTrack(localId, {
         status: STATUS.ERROR,
-        error: err.response?.data?.detail || 'Помилка завантаження',
+        error: final.analysis_error || strings.bulk.messages.analysisError,
+      });
+    } else {
+      patchTrack(localId, {
+        status: STATUS.ANALYZING,
+        error: strings.bulk.messages.analysisTimeout,
       });
     }
-  };
+  } catch (e) {
+    patchTrack(localId, {
+      status: STATUS.ERROR,
+      error: strings.bulk.messages.analysisCheckFailed,
+    });
+  }
+};
 
   /* ── Upload ALL tracks ── */
   const uploadAll = async () => {
     setPhase('uploading');
     setGlobalMsg(null);
 
-    const toUpload = tracks.filter(t =>
-      t.status !== STATUS.DONE && t.status !== STATUS.UPLOADING
+    const toUpload = tracks.filter((t) =>
+      t.status !== STATUS.DONE &&
+      t.status !== STATUS.UPLOADING &&
+      t.status !== STATUS.ANALYZING
     );
 
     // Upload in parallel (max 3 concurrent)
     const CHUNK = 3;
     for (let i = 0; i < toUpload.length; i += CHUNK) {
-      await Promise.all(toUpload.slice(i, i + CHUNK).map(t => uploadOne(t.id)));
+      await Promise.all(toUpload.slice(i, i + CHUNK).map((t) => uploadOne(t.id)));
     }
 
     setPhase('done');
-    const doneCount = tracks.filter(t => t.status === STATUS.DONE).length + toUpload.filter(t => t.status !== STATUS.ERROR).length;
-    setGlobalMsg({ type: 'success', text: `✓ Завантажено ${toUpload.length} треків` });
+    setGlobalMsg({
+      type: 'success',
+      text: strings.bulk.messages.uploadSuccess(toUpload.length),
+    });
   };
 
   /* ── Derived counts ── */
+  // ``done`` here means "fully uploaded AND analysed".  Tracks still
+  // in ANALYZING count as "in progress" (successfully accepted by the
+  // server, just waiting on the BackgroundTask).  We surface the
+  // ANALYZING count separately so the toolbar can show a useful
+  // progress indicator.
   const counts = {
     total: tracks.length,
-    tagged: tracks.filter(t => t.status === STATUS.TAGGED || t.status === STATUS.DONE).length,
-    done: tracks.filter(t => t.status === STATUS.DONE).length,
-    errors: tracks.filter(t => t.status === STATUS.ERROR).length,
-    uploadable: tracks.filter(t => t.status !== STATUS.DONE).length,
+    tagged: tracks.filter((t) => t.status === STATUS.TAGGED || t.status === STATUS.DONE || t.status === STATUS.ANALYZING).length,
+    done: tracks.filter((t) => t.status === STATUS.DONE).length,
+    analyzing: tracks.filter((t) => t.status === STATUS.ANALYZING).length,
+    errors: tracks.filter((t) => t.status === STATUS.ERROR).length,
+    uploadable: tracks.filter(
+      (t) => t.status !== STATUS.DONE && t.status !== STATUS.ANALYZING
+    ).length,
   };
 
   const allDone = counts.total > 0 && counts.done === counts.total;
-  const busy = phase === 'tagging' || phase === 'uploading';
+  const busy =
+    phase === 'tagging' ||
+    phase === 'uploading' ||
+    tracks.some(
+      (t) => t.status === STATUS.UPLOADING || t.status === STATUS.ANALYZING
+    );
 
   return (
     <>
       {/* ── Header ── */}
-      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12 }}>
+      <div className="page-header page-header-row">
         <div>
-          <h1 className="page-title">Масове завантаження</h1>
+          <h1 className="page-title">{strings.bulk.pageTitle}</h1>
           <p className="page-subtitle">
-            Перетягніть кілька файлів, AI автоматично визначить жанр, виконавця та назву
+            {strings.bulk.pageSubtitle}
           </p>
         </div>
 
         {/* AI status */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+        <div className="flex-center gap-sm flex-shrink-0">
           {aiAvailable === true && (
-            <span style={{
-              fontSize: '0.75rem', fontWeight: 600, padding: '4px 12px',
-              borderRadius: 99, background: 'rgba(16,185,129,0.12)', color: '#10b981',
-            }}>✦ AI ready</span>
+            <span className="pill pill-success">✦ AI ready</span>
           )}
           {aiAvailable === false && (
-            <span style={{
-              fontSize: '0.75rem', fontWeight: 600, padding: '4px 12px',
-              borderRadius: 99, background: 'rgba(156,163,175,0.12)', color: '#9ca3af',
-            }}>AI not configured</span>
+            <span className="pill pill-muted">AI not configured</span>
           )}
         </div>
       </div>
@@ -392,116 +433,107 @@ export default function BulkUploadPage() {
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         onClick={() => !busy && fileInputRef.current?.click()}
+        className="drop-zone"
         style={{
-          border: `2px dashed ${dragging ? 'var(--accent)' : 'var(--border-light)'}`,
-          borderRadius: 'var(--radius-lg)',
-          padding: '40px 24px',
-          textAlign: 'center',
-          cursor: busy ? 'default' : 'pointer',
+          borderColor: dragging ? 'var(--accent)' : 'var(--border-light)',
           background: dragging ? 'var(--accent-subtle)' : 'var(--bg-secondary)',
-          transition: 'all 0.2s ease',
-          marginBottom: 24,
-          userSelect: 'none',
+          cursor: busy ? 'default' : 'pointer',
         }}
       >
-        <div style={{ fontSize: '2.5rem', marginBottom: 10, opacity: 0.7 }}>🎵</div>
-        <p style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: 4 }}>
-          {dragging ? 'Відпустіть файли тут' : 'Перетягніть аудіофайли сюди'}
+        <div className="drop-zone-icon">🎵</div>
+        <p className="drop-zone-text">
+          {dragging ? strings.bulk.dropzone.active : strings.bulk.dropzone.inactive}
         </p>
-        <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-          або натисніть для вибору · MP3, WAV, FLAC, OGG
+        <p className="text-muted drop-zone-hint">
+          {strings.bulk.dropzone.hint}
         </p>
         <input
           ref={fileInputRef}
           type="file"
           multiple
           accept=".mp3,.wav,.flac,.ogg"
-          style={{ display: 'none' }}
+          className="sr-only"
           onChange={onFileInput}
         />
       </div>
 
       {/* ── Global message ── */}
       {globalMsg && (
-        <div className={`alert alert-${globalMsg.type === 'success' ? 'success' : 'error'}`}
-          style={{ marginBottom: 16 }}>
+        <div className={`alert alert-${globalMsg.type === 'success' ? 'success' : 'error'} mb-md`}>
           {globalMsg.text}
         </div>
       )}
 
       {/* ── Toolbar (only if tracks exist) ── */}
       {tracks.length > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 10,
-          marginBottom: 16, flexWrap: 'wrap',
-        }}>
-          {/* Autofill all */}
+        <div className="flex-center flex-wrap mb-md gap-sm">
           <button
-            className="btn btn-secondary"
+            className="btn btn-secondary gap-xs"
             onClick={tagAll}
             disabled={busy || !aiAvailable || allDone}
-            style={{ gap: 6 }}
           >
             {phase === 'tagging'
-              ? <><SmallSpinner /> AI обробка…</>
-              : '✨ AI автозаповнення всіх'}
+              ? <><SmallSpinner /> {strings.bulk.aiButton.tagging}</>
+              : `✨ ${strings.bulk.aiButton.idle}`}
           </button>
 
-          {/* Upload all */}
           <button
-            className="btn btn-primary"
+            className="btn btn-primary gap-xs"
             onClick={uploadAll}
             disabled={busy || counts.uploadable === 0}
-            style={{ gap: 6 }}
           >
             {phase === 'uploading'
-              ? <><SmallSpinner color="white" /> Завантаження…</>
-              : `⬆ Завантажити всі (${counts.uploadable})`}
+              ? <><SmallSpinner color="white" /> {strings.bulk.uploadButton.uploading}</>
+              : strings.bulk.uploadButton.idle(counts.uploadable)}
           </button>
 
-          {/* Clear done */}
           {counts.done > 0 && !busy && (
             <button
               className="btn btn-secondary btn-sm"
-              onClick={() => setTracks(t => t.filter(x => x.status !== STATUS.DONE))}
+              onClick={() =>
+                setTracks((t) => t.filter((x) => x.status !== STATUS.DONE))
+              }
             >
-              Очистити завантажені
+              {strings.bulk.clearDone}
             </button>
           )}
 
-          {/* Clear all */}
           {!busy && (
             <button
               className="btn btn-danger btn-sm"
               onClick={() => { setTracks([]); setGlobalMsg(null); setPhase('idle'); }}
             >
-              Очистити все
+              {strings.bulk.clearAll}
             </button>
           )}
 
-          {/* Stats */}
-          <span style={{ marginLeft: 'auto', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
-            {counts.done}/{counts.total} завантажено
-            {counts.errors > 0 && <> · <span style={{ color: 'var(--danger)' }}>{counts.errors} помилок</span></>}
+          <span className="text-muted stats-text">
+            {strings.bulk.stats.ready(counts.done, counts.total)}
+            {counts.analyzing > 0 && (
+              <> · <span className="text-purple">{strings.bulk.stats.analyzing(counts.analyzing)}</span></>
+            )}
+            {counts.errors > 0 && <> · <span className="text-danger">{strings.bulk.stats.errors(counts.errors)}</span></>}
           </span>
         </div>
       )}
 
-      {/* ── Progress bar (during bulk ops) ── */}
       {(phase === 'tagging' || phase === 'uploading') && tracks.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
+        <div className="mb-md">
           <ProgressBar
-            done={phase === 'uploading' ? counts.done : counts.tagged}
+            done={
+              phase === 'uploading'
+                ? counts.done + counts.analyzing
+                : counts.tagged
+            }
             total={counts.total}
           />
         </div>
       )}
 
-      {/* ── Track list ── */}
       {tracks.length > 0 ? (
-        <div className="card" style={{ padding: '12px 12px' }}>
+        <div className="card card-compact">
           <TrackHeaders />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="flex-col gap-xs">
             {tracks.map(track => (
               <TrackRow
                 key={track.id}
@@ -515,27 +547,25 @@ export default function BulkUploadPage() {
           </div>
         </div>
       ) : (
-        /* ── Empty state ── */
         <div className="empty-state">
           <div className="empty-state-icon">📂</div>
-          <div className="empty-state-text">Файли ще не вибрані</div>
+          <div className="empty-state-text">{strings.bulk.empty.title}</div>
           <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
-            Вибрати файли
+            {strings.bulk.empty.button}
           </button>
         </div>
       )}
 
-      {/* ── Footer actions ── */}
       {allDone && (
-        <div style={{ marginTop: 20, display: 'flex', gap: 10 }}>
+        <div className="flex gap-sm mt-lg">
           <button className="btn btn-primary" onClick={() => navigate('/')}>
-            Перейти до Дашборду
+            {strings.bulk.footer.dashboard}
           </button>
           <button
             className="btn btn-secondary"
             onClick={() => { setTracks([]); setGlobalMsg(null); setPhase('idle'); }}
           >
-            Завантажити ще
+            {strings.bulk.footer.uploadMore}
           </button>
         </div>
       )}

@@ -78,9 +78,9 @@ export default function AnalyzePage() {
             features.energy ?? 0,
             features.valence ?? 0,
             features.tempo ? Math.min(features.tempo / 200, 1) : 0,
-            features.loudness ? Math.min((features.loudness + 60) / 60, 1) : 0,
-            features.spectral_centroid_mean ? Math.min(features.spectral_centroid_mean / 8000, 1) : 0,
-            features.zero_crossing_rate_mean ? Math.min(features.zero_crossing_rate_mean / 0.2, 1) : 0,
+            features.loudness ? Math.min(Math.max((features.loudness + 20) / 18, 0), 1) : 0,
+            features.spectral_centroid_mean ? Math.min(features.spectral_centroid_mean / 6000, 1) : 0,
+            features.zero_crossing_rate_mean ? Math.min(features.zero_crossing_rate_mean * 5, 1) : 0,
           ],
           theta: ['Energy', 'Valence', 'Tempo', 'Loudness', 'Brightness', 'ZCR'],
           fill: 'toself',
@@ -190,7 +190,7 @@ export default function AnalyzePage() {
             },
           }}
           config={{ displayModeBar: false, responsive: true }}
-          style={{ width: '100%' }}
+          className="w-full"
         />
       </div>
 
@@ -206,7 +206,7 @@ export default function AnalyzePage() {
               yaxis: { color: '#606070', gridcolor: '#1a1a25' },
             }}
             config={{ displayModeBar: false, responsive: true }}
-            style={{ width: '100%' }}
+            className="w-full"
           />
         </div>
       )}
@@ -223,7 +223,7 @@ export default function AnalyzePage() {
               yaxis: { color: '#606070', gridcolor: '#1a1a25' },
             }}
             config={{ displayModeBar: false, responsive: true }}
-            style={{ width: '100%' }}
+            className="w-full"
           />
         </div>
       )}

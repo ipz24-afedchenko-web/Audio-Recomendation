@@ -16,6 +16,11 @@ export default function UploadPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(null); // null = checking
 
+  // Analysis lifecycle: 'idle' | 'analyzing' | 'ready' | 'error'
+  const [analysisStatus, setAnalysisStatus] = useState('idle');
+  const [analysisError, setAnalysisError] = useState(null);
+  const [uploadedMusicId, setUploadedMusicId] = useState(null);
+
   useEffect(() => {
     musicAPI.aiStatus()
       .then(res => setAiAvailable(res.data.available))
@@ -66,6 +71,19 @@ export default function UploadPage() {
     }
   };
 
+  const resetForm = () => {
+    setFile(null);
+    setTitle('');
+    setArtist('');
+    setAlbum('');
+    setGenre('');
+    setError('');
+    setSuccess('');
+    setAnalysisStatus('idle');
+    setAnalysisError(null);
+    setUploadedMusicId(null);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -86,20 +104,42 @@ export default function UploadPage() {
       if (genre) formData.append('genre', genre);
 
       const res = await musicAPI.upload(formData);
-      setSuccess(`"${res.data.title}" uploaded successfully!`);
+      const newId = res.data.id;
+      setUploadedMusicId(newId);
+      setAnalysisStatus(res.data.analysis_status || 'pending');
+      setSuccess(`⬆ "${res.data.title}" uploaded! Analysis running in background…`);
 
-      // Reset form
+      // Reset the file picker + metadata fields but keep the success
+      // banner visible so the user sees the result of the upload.
       setFile(null);
       setTitle('');
       setArtist('');
       setAlbum('');
       setGenre('');
 
-      // Navigate to dashboard after short delay
-      setTimeout(() => navigate('/'), 1500);
+      // Poll the server until analysis completes.  When done, redirect
+      // to the dashboard so the user can see their new track fully
+      // analysed.
+      setLoading(false);
+      const final = await musicAPI.waitForAnalysis(newId, {
+        onUpdate: (data) => setAnalysisStatus(data.analysis_status),
+      });
+      setAnalysisStatus(final.analysis_status);
+      if (final.analysis_status === 'error') {
+        setAnalysisError(final.analysis_error || 'Unknown error');
+        setError(`Analysis failed: ${final.analysis_error || 'unknown'}`);
+      } else {
+        setSuccess(`✅ "${final.title}" is fully analysed and ready!`);
+        setTimeout(() => navigate('/'), 1500);
+      }
     } catch (err) {
-      setError(err.response?.data?.detail || 'Upload failed');
-    } finally {
+      const status = err.response?.status;
+      if (status === 409) {
+        // Server-side dedup — surface a friendly message.
+        setError(`⚠️ ${err.response.data.detail}`);
+      } else {
+        setError(err.response?.data?.detail || 'Upload failed');
+      }
       setLoading(false);
     }
   };
@@ -111,7 +151,7 @@ export default function UploadPage() {
         <p className="page-subtitle">Supported formats: MP3, WAV, FLAC, OGG</p>
       </div>
 
-      <div className="card" style={{ maxWidth: 560 }}>
+      <div className="card card-narrow">
         {error && <div className="alert alert-error">{error}</div>}
         {success && <div className="alert alert-success">{success}</div>}
 
@@ -132,43 +172,25 @@ export default function UploadPage() {
             <label className="form-label" htmlFor="upload-title">
               Title *
               {aiAvailable === true && (
-                <span style={{
-                  marginLeft: 8,
-                  fontSize: '0.7rem',
-                  background: 'rgba(16,185,129,0.15)',
-                  color: '#10b981',
-                  padding: '2px 7px',
-                  borderRadius: 99,
-                  fontWeight: 600,
-                  letterSpacing: '0.02em',
-                }}>✦ AI ready</span>
+                <span className="pill pill-success ml-sm">✦ AI ready</span>
               )}
               {aiAvailable === false && (
-                <span style={{
-                  marginLeft: 8,
-                  fontSize: '0.7rem',
-                  background: 'rgba(156,163,175,0.15)',
-                  color: '#9ca3af',
-                  padding: '2px 7px',
-                  borderRadius: 99,
-                  fontWeight: 600,
-                }}>AI not configured</span>
+                <span className="pill pill-muted ml-sm">AI not configured</span>
               )}
             </label>
-            <div className="flex gap-sm" style={{ alignItems: 'flex-start' }}>
+            <div className="flex gap-sm flex-start">
               <input
                 id="upload-title"
-                className="form-input"
+                className="form-input flex-1"
                 type="text"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Track title"
                 required
-                style={{ flex: 1 }}
               />
               <button
                 type="button"
-                className="btn btn-secondary"
+                className="btn btn-secondary text-nowrap"
                 onClick={handleAutoTag}
                 disabled={aiLoading || !file || aiAvailable === false}
                 title={
@@ -176,7 +198,6 @@ export default function UploadPage() {
                     ? 'AI service not configured (GEMINI_API_KEY missing)'
                     : 'Use AI to auto-fill metadata from filename'
                 }
-                style={{ whiteSpace: 'nowrap' }}
               >
                 {aiLoading ? <><div className="spinner" /> Loading…</> : '✨ Auto-fill with AI'}
               </button>
@@ -223,19 +244,39 @@ export default function UploadPage() {
             <button
               type="submit"
               className="btn btn-primary"
-              disabled={loading}
+              disabled={loading || analysisStatus === 'analyzing' || analysisStatus === 'pending'}
               id="upload-submit"
             >
-              {loading ? <><div className="spinner" /> Uploading…</> : '⬆ Upload'}
+              {loading
+                ? <><div className="spinner" /> Uploading…</>
+                : analysisStatus === 'analyzing' || analysisStatus === 'pending'
+                  ? <><div className="spinner" /> Analysing…</>
+                  : '⬆ Upload'}
             </button>
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => navigate('/')}
+              onClick={() => { resetForm(); navigate('/'); }}
             >
               Cancel
             </button>
           </div>
+
+          {analysisStatus === 'analyzing' && (
+            <p className="text-sm text-muted mt-md">
+              ⏳ Extracting tempo, key, MFCCs, energy and other audio features…
+            </p>
+          )}
+          {analysisStatus === 'ready' && (
+            <p className="text-sm mt-md text-accent">
+              🎵 Analysis complete — redirecting to your library…
+            </p>
+          )}
+          {analysisStatus === 'error' && analysisError && (
+            <p className="text-sm mt-md text-danger">
+              ⚠️ Analysis failed: {analysisError}
+            </p>
+          )}
         </form>
       </div>
     </>

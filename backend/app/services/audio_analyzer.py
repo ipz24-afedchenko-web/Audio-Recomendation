@@ -3,7 +3,122 @@ import numpy as np
 from typing import Dict, Optional
 import logging
 
+from app.database import SessionLocal
+from app.models.audio_features import AudioFeatures
+from app.models.music import (
+    Music,
+    ANALYSIS_STATUS_ANALYZING,
+    ANALYSIS_STATUS_READY,
+    ANALYSIS_STATUS_ERROR,
+)
+from app.utils.audio_utils import compute_perceptual_fingerprint
+from app.services.storage import get_storage
+
 logger = logging.getLogger(__name__)
+
+
+def run_analysis(music_id: int) -> bool:
+    """
+    Analyze a single track and persist the result.
+
+    Designed to be called from FastAPI's ``BackgroundTasks`` AFTER the
+    upload response is sent.  Opens its own DB session so it is fully
+    decoupled from the request lifecycle.
+
+    Updates ``Music.analysis_status`` as it goes:
+        pending  → analyzing → ready  (on success)
+        pending  → analyzing → error  (on failure; ``analysis_error`` set)
+
+    Returns True on success, False on failure.  Never raises — failures
+    are persisted to the DB so the frontend can show the user what
+    went wrong.
+    """
+    db = SessionLocal()
+    try:
+        music = db.query(Music).filter(Music.id == music_id).first()
+        if music is None:
+            logger.warning("run_analysis: music_id=%s not found", music_id)
+            return False
+
+        # Idempotency: if we already have features, nothing to do.
+        if music.audio_features is not None:
+            music.analysis_status = ANALYSIS_STATUS_READY
+            db.commit()
+            return True
+
+        music.analysis_status = ANALYSIS_STATUS_ANALYZING
+        music.analysis_error = None
+        db.commit()
+
+        try:
+            analyzer = AudioAnalyzer()
+            local_path = get_storage().get_local_path(music.file_path)
+            features = analyzer.analyze(local_path)
+            valence = analyzer.estimate_valence(features)
+            if valence is not None:
+                features["valence"] = valence
+
+            audio_features = AudioFeatures(
+                music_id=music_id,
+                tempo=features.get("tempo"),
+                duration=features.get("duration"),
+                key=features.get("key"),
+                mode=features.get("mode"),
+                loudness=features.get("loudness"),
+                energy=features.get("energy"),
+                valence=features.get("valence"),
+                spectral_centroid_mean=features.get("spectral_centroid_mean"),
+                spectral_centroid_std=features.get("spectral_centroid_std"),
+                spectral_bandwidth_mean=features.get("spectral_bandwidth_mean"),
+                spectral_bandwidth_std=features.get("spectral_bandwidth_std"),
+                spectral_rolloff_mean=features.get("spectral_rolloff_mean"),
+                spectral_rolloff_std=features.get("spectral_rolloff_std"),
+                mfcc_mean=features.get("mfcc_mean"),
+                mfcc_std=features.get("mfcc_std"),
+                zero_crossing_rate_mean=features.get("zero_crossing_rate_mean"),
+                zero_crossing_rate_std=features.get("zero_crossing_rate_std"),
+                chroma_stft_mean=features.get("chroma_stft_mean"),
+                chroma_stft_std=features.get("chroma_stft_std"),
+                perceptual_fingerprint=features.get("perceptual_fingerprint"),
+            )
+
+            if music.duration is None and features.get("duration"):
+                music.duration = features["duration"]
+
+            db.add(audio_features)
+            music.analysis_status = ANALYSIS_STATUS_READY
+            db.commit()
+
+            # Best-effort K-Means auto-retrain — same hook used by the
+            # manual /analyze route.  Failures must not bubble up here
+            # because the analyze itself was successful.
+            try:
+                from app.services.ml_recommender import MLRecommender
+                recommender = MLRecommender()
+                recommender.load_models()
+                recommender.auto_retrain_if_needed(db)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Auto-retrain after background analysis failed: %s", str(e)
+                )
+
+            logger.info(
+                "Background analysis complete for music_id=%s (tempo=%s)",
+                music_id, features.get("tempo"),
+            )
+            return True
+
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Background analysis failed for music_id=%s", music_id)
+            music.analysis_status = ANALYSIS_STATUS_ERROR
+            # Truncate the error message so a malformed 50MB file does
+            # not pollute the database.
+            music.analysis_error = (str(e) or type(e).__name__)[:500]
+            db.commit()
+            return False
+
+    finally:
+        db.close()
 
 
 class AudioAnalyzer:
@@ -60,6 +175,9 @@ class AudioAnalyzer:
                 **self._extract_harmony_features(y, sr),
             }
 
+            fingerprint = compute_perceptual_fingerprint(y, sr)
+            features["perceptual_fingerprint"] = fingerprint
+
             return features
 
         except Exception as e:
@@ -109,15 +227,13 @@ class AudioAnalyzer:
     def _extract_energy_features(self, y: np.ndarray, sr: int) -> Dict:
         """Extract loudness and energy."""
         try:
-            # Loudness (in dB)
             rms = librosa.feature.rms(y=y)[0]
-            loudness = float(librosa.amplitude_to_db(rms.mean(), ref=np.max))
+            mean_rms = float(np.mean(rms))
+            max_rms = float(np.max(rms))
 
-            # Energy (normalized RMS)
-            energy = float(rms.mean())
+            loudness = float(librosa.amplitude_to_db(mean_rms, ref=max_rms))
 
-            # Normalize energy to 0-1 range
-            energy_normalized = min(energy / 0.1, 1.0)  # 0.1 is approximate max RMS
+            energy_normalized = min(mean_rms / 0.4, 1.0)
 
             return {
                 "loudness": loudness,
@@ -215,41 +331,59 @@ class AudioAnalyzer:
         """
         Estimate valence (musical positivity) from extracted features.
 
-        This is a simplified heuristic based on:
-        - Mode (major = more positive)
-        - Tempo (faster = more positive)
-        - Energy (higher = more positive)
-
-        Args:
-            features: Dictionary of extracted features
+        Weighted heuristic using:
+        - Mode (major = more positive, weight 1.5)
+        - Tempo (faster = more positive, weight 0.8)
+        - Energy (higher = more positive, weight 1.2)
+        - Loudness (louder = more positive, weight 0.5)
+        - Spectral centroid (brighter = more positive, weight 0.4)
+        - Zero-crossing rate (more texture = more positive, weight 0.3)
 
         Returns:
-            Valence score (0.0-1.0) or None if cannot be estimated
+            Valence score (0.0-1.0) or None if no features available
         """
         try:
-            valence_score = 0.0
-            count = 0
+            score = 0.0
+            total_weight = 0.0
 
-            # Mode contribution (major is more positive)
+            # Mode: major (1) is more positive than minor (0)  [weight 1.5]
             if features.get("mode") is not None:
-                valence_score += features["mode"]  # 0 or 1
-                count += 1
+                score += 1.5 * features["mode"]
+                total_weight += 1.5
 
-            # Tempo contribution (normalized)
+            # Tempo: normalise 40-200 BPM → [0, 1], clip  [weight 0.8]
             if features.get("tempo") is not None:
-                tempo_normalized = min(features["tempo"] / 180.0, 1.0)  # 180 BPM as max
-                valence_score += tempo_normalized
-                count += 1
+                tempo_n = (features["tempo"] - 40) / 160.0
+                score += 0.8 * max(0.0, min(tempo_n, 1.0))
+                total_weight += 0.8
 
-            # Energy contribution
+            # Energy: already [0, 1]  [weight 1.2]
             if features.get("energy") is not None:
-                valence_score += features["energy"]
-                count += 1
+                score += 1.2 * features["energy"]
+                total_weight += 1.2
 
-            if count == 0:
+            # Loudness: -60..0 dB → [0, 1]  [weight 0.5]
+            if features.get("loudness") is not None:
+                loud_n = (features["loudness"] + 60.0) / 60.0
+                score += 0.5 * max(0.0, min(loud_n, 1.0))
+                total_weight += 0.5
+
+            # Spectral centroid: 0-8000 Hz → [0, 1]  [weight 0.4]
+            if features.get("spectral_centroid_mean") is not None:
+                cent_n = features["spectral_centroid_mean"] / 8000.0
+                score += 0.4 * max(0.0, min(cent_n, 1.0))
+                total_weight += 0.4
+
+            # Zero-crossing rate: 0-0.5 → [0, 1]  [weight 0.3]
+            if features.get("zero_crossing_rate_mean") is not None:
+                zcr_n = features["zero_crossing_rate_mean"] * 2.0
+                score += 0.3 * max(0.0, min(zcr_n, 1.0))
+                total_weight += 0.3
+
+            if total_weight == 0:
                 return None
 
-            return float(valence_score / count)
+            return float(score / total_weight)
 
         except Exception as e:
             logger.warning(f"Error estimating valence: {str(e)}")

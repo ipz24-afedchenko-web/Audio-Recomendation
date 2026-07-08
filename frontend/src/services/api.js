@@ -4,27 +4,15 @@ const API_BASE = '/api';
 
 const api = axios.create({
   baseURL: API_BASE,
-});
-
-// Attach JWT token to every request
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
+  withCredentials: true,
 });
 
 // Redirect to login on 401
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
-      }
+    if (error.response?.status === 401 && window.location.pathname !== '/login') {
+      window.location.href = '/login';
     }
     return Promise.reject(error);
   }
@@ -43,6 +31,8 @@ export const authAPI = {
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
   },
+
+  logout: () => api.post('/auth/logout'),
 
   getMe: () => api.get('/auth/me'),
 };
@@ -69,6 +59,37 @@ export const musicAPI = {
     }),
 
   aiStatus: () => api.get('/music/ai-status'),
+
+  /**
+   * Poll a track's analysis status until it lands in a terminal state
+   * (ready / error) or the timeout expires.
+   *
+   * @param {number} musicId
+   * @param {object} [opts]
+   * @param {number} [opts.intervalMs=2000] - delay between polls
+   * @param {number} [opts.timeoutMs=90000]  - give up after this long
+   * @param {(s: object) => void} [opts.onUpdate] - called on every poll
+   * @returns {Promise<object>} the latest /api/music/{id} payload
+   */
+  waitForAnalysis: async (musicId, opts = {}) => {
+    const {
+      intervalMs = 2000,
+      timeoutMs = 90_000,
+      onUpdate = null,
+    } = opts;
+
+    const deadline = Date.now() + timeoutMs;
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      const res = await musicAPI.getById(musicId);
+      const status = res.data?.analysis_status;
+      if (onUpdate) onUpdate(res.data);
+
+      if (status === 'ready' || status === 'error') return res.data;
+      if (Date.now() > deadline) return res.data;  // give up gracefully
+      await new Promise((r) => setTimeout(r, intervalMs));
+    }
+  },
 };
 
 /* ── Analysis ── */
@@ -82,8 +103,8 @@ export const analyzeAPI = {
 /* ── Recommendations ── */
 
 export const recommendAPI = {
-  get: (musicId, limit = 10, algorithm = 3) =>
-    api.get(`/recommend/${musicId}`, { params: { limit, algorithm } }),
+  get: (musicId, limit = 10, algorithm = 3, abTest = false) =>
+    api.get(`/recommend/${musicId}`, { params: { limit, algorithm, ab_test: abTest } }),
 
   getUserHistory: (userId) => api.get(`/recommend/user/${userId}`),
 
@@ -95,6 +116,16 @@ export const recommendAPI = {
   trainGenre: () => api.post('/recommend/train-genre'),
 
   predictGenre: (musicId) => api.post(`/recommend/predict-genre/${musicId}`),
+
+  recordEvent: (eventType, algorithm, sourceMusicId, recommendedMusicId = null) =>
+    api.post('/ab/event', {
+      event_type: eventType,
+      algorithm,
+      source_music_id: sourceMusicId,
+      recommended_music_id: recommendedMusicId,
+    }),
+
+  getABStats: () => api.get('/ab/stats'),
 };
 
 export default api;

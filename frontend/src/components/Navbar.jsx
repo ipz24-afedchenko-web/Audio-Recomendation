@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../utils/AuthContext';
+import strings from '../strings';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -25,57 +26,35 @@ export default function Navbar() {
               <NavLink to="/" end>Dashboard</NavLink>
 
               {/* Upload dropdown */}
-              <div
-                style={{ position: 'relative' }}
+              <div className="nav-dropdown-wrapper"
                 onMouseEnter={() => setUploadOpen(true)}
                 onMouseLeave={() => setUploadOpen(false)}
               >
                 <NavLink
                   to="/upload"
-                  style={({ isActive }) => ({
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    padding: 'var(--space-sm) var(--space-md)',
-                    borderRadius: 'var(--radius-sm)',
-                    fontSize: 'var(--font-size-sm)', fontWeight: 500,
-                    color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
-                    background: isActive ? 'var(--accent-subtle)' : 'none',
-                    transition: 'all 150ms ease', cursor: 'pointer',
-                    textDecoration: 'none',
-                  })}
+                  className={({ isActive }) =>
+                    `nav-dropdown-trigger${isActive ? ' active' : ''}`
+                  }
                 >
                   Upload
-                  <span style={{ fontSize: '0.6rem', opacity: 0.6, marginTop: 1 }}>▾</span>
+                  <span className="nav-dropdown-arrow">▾</span>
                 </NavLink>
 
                 {uploadOpen && (
-                  <div style={{
-                    position: 'absolute', top: '100%', left: 0,
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '6px 0', minWidth: 180,
-                    boxShadow: 'var(--shadow-lg)', zIndex: 200,
-                    animation: 'fadeIn 0.15s ease',
-                  }}>
+                  <div className="nav-dropdown-menu">
                     <NavLink
                       to="/upload"
+                      className="nav-dropdown-item"
                       onClick={() => setUploadOpen(false)}
-                      style={{ display: 'block', padding: '8px 16px', fontSize: '0.85rem',
-                        color: 'var(--text-secondary)', transition: 'all 0.15s ease' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                     >
-                      🎵 Один трек
+                      🎵 {strings.nav.uploadSingle}
                     </NavLink>
                     <NavLink
                       to="/bulk-upload"
+                      className="nav-dropdown-item"
                       onClick={() => setUploadOpen(false)}
-                      style={{ display: 'block', padding: '8px 16px', fontSize: '0.85rem',
-                        color: 'var(--text-secondary)', transition: 'all 0.15s ease' }}
-                      onMouseEnter={e => { e.currentTarget.style.background = 'var(--accent-subtle)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
                     >
-                      📂 Масове завантаження
+                      📂 {strings.nav.uploadBulk}
                     </NavLink>
                   </div>
                 )}

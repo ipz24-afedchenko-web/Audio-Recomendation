@@ -1,80 +1,120 @@
 import os
-import shutil
+import logging
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    status,
+    UploadFile,
+    File,
+    Form,
+)
 from sqlalchemy.orm import Session
 
 from app.database import get_db, get_settings
 from app.models.user import User
-from app.models.music import Music
+from app.models.music import Music, ANALYSIS_STATUS_PENDING
 from app.schemas.music import MusicResponse, MusicCreate, MusicUpdate, MusicWithFeatures
 from app.utils.auth import get_current_active_user
+from app.utils.file_validation import validate_audio_file
 from app.services.ai_tagger import get_ai_tagger
+from app.services.audio_analyzer import run_analysis as run_audio_analysis
+from app.services.storage import get_storage
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 settings = get_settings()
-
-# Create upload directory if it doesn't exist
-os.makedirs(settings.upload_dir, exist_ok=True)
+logger = logging.getLogger(__name__)
 
 
-@router.post("/upload", response_model=MusicResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/upload",
+    response_model=MusicResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def upload_music(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     title: str = Form(...),
     artist: str = Form(None),
     album: str = Form(None),
     genre: str = Form(None),
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
     Upload a new music file.
 
-    - **file**: Audio file (mp3, wav, flac, ogg)
-    - **title**: Track title
-    - **artist**: Artist name (optional)
-    - **album**: Album name (optional)
-    - **genre**: Genre (optional)
+    On success the file is stored, its SHA-256 hash is recorded and a
+    BackgroundTask is scheduled to extract audio features (tempo, key,
+    mode, MFCCs, energy, valence, etc.).  Polling
+    ``GET /api/music/{id}`` lets the UI track analysis progress via the
+    ``analysis_status`` field.
 
-    Returns created music record.
+    - **409 Conflict** is returned if the same file (by content hash) has
+      already been uploaded by this user.
     """
-    # Validate file type
-    allowed_extensions = {".mp3", ".wav", ".flac", ".ogg"}
-    file_extension = os.path.splitext(file.filename)[1].lower()
-    if file_extension not in allowed_extensions:
+    # 1. Validate extension + magic bytes — rejects renamed non-audio
+    #    files.  Must happen BEFORE we start reading the body because
+    #    we cannot rewind the SpooledTemporaryFile if the file is too
+    #    large.
+    ok, reason = validate_audio_file(file.file, file.filename or "")
+    if not ok:
+        logger.warning(
+            "Rejected upload by user_id=%s: %s (filename=%s)",
+            current_user.id, reason, file.filename,
+        )
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File type not allowed. Allowed types: {', '.join(allowed_extensions)}"
+            status_code=status.HTTP_400_BAD_REQUEST, detail=reason,
         )
 
-    # Check file size
-    file.file.seek(0, 2)  # Seek to end
-    file_size = file.file.tell()
-    file.file.seek(0)  # Reset to start
-
-    if file_size > settings.max_upload_size:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"File too large. Maximum size: {settings.max_upload_size} bytes"
-        )
-
-    # Create unique filename
-    import uuid
-    unique_filename = f"{uuid.uuid4()}{file_extension}"
-    file_path = os.path.join(settings.upload_dir, unique_filename)
-
-    # Save file
+    # 2. Persist the file via the configured storage backend (local disk
+    #    or S3).  SHA-256 is computed during the write.
+    storage = get_storage()
     try:
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        file_path, file_hash, file_size = storage.save(
+            file.file, file.filename or "audio", settings.max_upload_size,
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(e),
+        )
     except Exception as e:
+        logger.exception("Failed to save uploaded file: %s", str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save file: {str(e)}"
+            detail="Failed to save file",
         )
 
-    # Create database record
+    if file_size == 0:
+        storage.delete(file_path)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file is empty",
+        )
+
+    # 4. Deduplication: same user, same content hash → 409 Conflict.
+    existing = (
+        db.query(Music)
+        .filter(Music.user_id == current_user.id, Music.file_hash == file_hash)
+        .first()
+    )
+    if existing is not None:
+        storage.delete(file_path)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"This file is already in your library as "
+                f"'{existing.title}'"
+                + (f" by {existing.artist}" if existing.artist else "")
+                + f" (uploaded {existing.created_at.strftime('%Y-%m-%d')})."
+            ),
+        )
+
+    # 5. Create the database record.  Status starts as ``pending``; the
+    #    background task will flip it to ``analyzing`` → ``ready`` (or
+    #    ``error``).
     db_music = Music(
         title=title,
         artist=artist,
@@ -82,12 +122,22 @@ async def upload_music(
         genre=genre,
         file_path=file_path,
         file_size=file_size,
-        user_id=current_user.id
+        file_hash=file_hash,
+        analysis_status=ANALYSIS_STATUS_PENDING,
+        user_id=current_user.id,
     )
     db.add(db_music)
     db.commit()
     db.refresh(db_music)
 
+    # 6. Schedule the analysis.  FastAPI's BackgroundTasks runs AFTER
+    #    the response is sent, so the client never waits for librosa.
+    background_tasks.add_task(run_audio_analysis, db_music.id)
+
+    logger.info(
+        "Upload accepted: user_id=%s music_id=%s hash=%s — analysis scheduled",
+        current_user.id, db_music.id, file_hash[:12],
+    )
     return db_music
 
 
@@ -190,13 +240,11 @@ def delete_music(
             detail="Not authorized to delete this music"
         )
 
-    # Delete file from disk
+    # Delete file from storage backend
     try:
-        if os.path.exists(music.file_path):
-            os.remove(music.file_path)
+        get_storage().delete(music.file_path)
     except Exception as e:
-        # Log error but continue with database deletion
-        print(f"Failed to delete file {music.file_path}: {str(e)}")
+        logger.warning("Failed to delete file %s: %s", music.file_path, str(e))
 
     # Delete from database
     db.delete(music)

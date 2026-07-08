@@ -8,40 +8,33 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      authAPI
-        .getMe()
-        .then((res) => setUser(res.data))
-        .catch(() => {
-          localStorage.removeItem('token');
-          localStorage.removeItem('user');
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+    authAPI
+      .getMe()
+      .then((res) => setUser(res.data))
+      .catch(() => setUser(null))
+      .finally(() => setLoading(false));
   }, []);
 
   const login = async (username, password) => {
-    const res = await authAPI.login(username, password);
-    const { access_token } = res.data;
-    localStorage.setItem('token', access_token);
-
+    await authAPI.login(username, password);
     const meRes = await authAPI.getMe();
     setUser(meRes.data);
-    localStorage.setItem('user', JSON.stringify(meRes.data));
     return meRes.data;
   };
 
   const register = async (username, email, password) => {
     await authAPI.register({ username, email, password });
-    return login(username, password);
+    const meRes = await authAPI.getMe();
+    setUser(meRes.data);
+    return meRes.data;
   };
 
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+  const logout = async () => {
+    try {
+      await authAPI.logout();
+    } catch {
+      // cookie deletion is best-effort
+    }
     setUser(null);
   };
 

@@ -1,23 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { useAuth } from '../utils/AuthContext';
 import { musicAPI, recommendAPI } from '../services/api';
 
 export default function RecommendationsPage() {
   const { user } = useAuth();
   const location = useLocation();
-  const navigate = useNavigate();
 
   const [tracks, setTracks] = useState([]);
   const [selectedTrack, setSelectedTrack] = useState(location.state?.musicId || '');
   const [algorithm, setAlgorithm] = useState(3);
   const [limit, setLimit] = useState(10);
+  const [abTest, setAbTest] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingTracks, setLoadingTracks] = useState(true);
   const [error, setError] = useState('');
   const [training, setTraining] = useState(false);
   const [trainResult, setTrainResult] = useState('');
+  const [abStats, setAbStats] = useState(null);
+  const [loadingStats, setLoadingStats] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -29,7 +31,6 @@ export default function RecommendationsPage() {
     }
   }, [user]);
 
-  // Auto-fetch if musicId was passed via location state
   useEffect(() => {
     if (selectedTrack && !loadingTracks) {
       handleGetRecommendations();
@@ -45,7 +46,7 @@ export default function RecommendationsPage() {
     setLoading(true);
     setRecommendations([]);
     try {
-      const res = await recommendAPI.get(selectedTrack, limit, algorithm);
+      const res = await recommendAPI.get(selectedTrack, limit, algorithm, abTest);
       setRecommendations(res.data);
       if (res.data.length === 0) {
         setError('No recommendations found. Make sure other tracks are analyzed and the model is trained.');
@@ -57,18 +58,36 @@ export default function RecommendationsPage() {
     }
   };
 
+  const handleClickRec = async (rec) => {
+    try {
+      await recommendAPI.recordEvent('click', rec.algorithm, rec.source_music_id, rec.recommended_music_id);
+    } catch {
+    }
+  };
+
   const handleTrain = async () => {
     setTraining(true);
     setTrainResult('');
     try {
       const res = await recommendAPI.train(8);
       setTrainResult(
-        `✅ Trained: ${res.data.total_tracks} tracks in ${res.data.n_clusters} clusters (inertia: ${res.data.inertia?.toFixed(1)})`
+        `Trained: ${res.data.total_tracks} tracks in ${res.data.n_clusters} clusters (inertia: ${res.data.inertia?.toFixed(1)})`
       );
     } catch (err) {
-      setTrainResult(`❌ ${err.response?.data?.detail || 'Training failed'}`);
+      setTrainResult(`${err.response?.data?.detail || 'Training failed'}`);
     } finally {
       setTraining(false);
+    }
+  };
+
+  const handleLoadStats = async () => {
+    setLoadingStats(true);
+    try {
+      const res = await recommendAPI.getABStats();
+      setAbStats(res.data);
+    } catch {
+    } finally {
+      setLoadingStats(false);
     }
   };
 
@@ -83,8 +102,8 @@ export default function RecommendationsPage() {
 
       {/* Controls */}
       <div className="card mb-lg">
-        <div className="flex gap-md" style={{ flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div className="form-group" style={{ flex: '1 1 200px', marginBottom: 0 }}>
+        <div className="flex gap-md flex-wrap flex-end">
+          <div className="form-group mb-0 flex-1-200">
             <label className="form-label" htmlFor="rec-track">Source Track</label>
             {loadingTracks ? (
               <div className="text-muted text-sm">Loading tracks…</div>
@@ -105,13 +124,14 @@ export default function RecommendationsPage() {
             )}
           </div>
 
-          <div className="form-group" style={{ flex: '0 0 160px', marginBottom: 0 }}>
+          <div className="form-group mb-0 flex-0-160">
             <label className="form-label" htmlFor="rec-algo">Algorithm</label>
             <select
               id="rec-algo"
               className="form-input"
               value={algorithm}
               onChange={(e) => setAlgorithm(Number(e.target.value))}
+              disabled={abTest}
             >
               <option value={3}>Cluster-Aware</option>
               <option value={1}>Cosine</option>
@@ -119,7 +139,7 @@ export default function RecommendationsPage() {
             </select>
           </div>
 
-          <div className="form-group" style={{ flex: '0 0 90px', marginBottom: 0 }}>
+          <div className="form-group mb-0 flex-0-90">
             <label className="form-label" htmlFor="rec-limit">Limit</label>
             <input
               id="rec-limit"
@@ -133,26 +153,42 @@ export default function RecommendationsPage() {
           </div>
 
           <button
-            className="btn btn-primary"
+            className="btn btn-primary mb-0"
             onClick={handleGetRecommendations}
             disabled={loading || !selectedTrack}
             id="rec-submit"
-            style={{ marginBottom: 0 }}
           >
-            {loading ? <><div className="spinner" /> Searching…</> : '🎯 Find Similar'}
+            {loading ? <><div className="spinner" /> Searching…</> : 'Find Similar'}
           </button>
+        </div>
+
+        {/* A/B Test toggle */}
+        <div className="flex-center gap-sm mt-sm">
+          <label className="form-label mb-0 text-sm" htmlFor="rec-ab-toggle">A/B Test Mode</label>
+          <input
+            id="rec-ab-toggle"
+            type="checkbox"
+            className="form-checkbox"
+            checked={abTest}
+            onChange={(e) => setAbTest(e.target.checked)}
+          />
+          {abTest && (
+            <span className="text-sm text-muted">
+              Random algorithm assigned per request
+            </span>
+          )}
         </div>
       </div>
 
       {/* Train model */}
-      <div className="flex gap-sm mb-lg" style={{ alignItems: 'center' }}>
+      <div className="flex-center gap-sm mb-lg">
         <button
           className="btn btn-secondary btn-sm"
           onClick={handleTrain}
           disabled={training}
           id="train-btn"
         >
-          {training ? <><div className="spinner" /> Training…</> : '⚙ Train Model'}
+          {training ? <><div className="spinner" /> Training…</> : 'Train Model'}
         </button>
         {trainResult && <span className="text-sm">{trainResult}</span>}
       </div>
@@ -163,20 +199,29 @@ export default function RecommendationsPage() {
       {recommendations.length > 0 && (
         <div className="rec-list">
           <div className="text-sm text-muted mb-md">
-            {recommendations.length} recommendation{recommendations.length !== 1 ? 's' : ''} ·{' '}
+            {recommendations.length} recommendation{recommendations.length !== 1 ? 's' : ''} ·
             Algorithm: {ALGO_LABELS[recommendations[0]?.algorithm] || 'Unknown'}
           </div>
 
           {recommendations.map((rec, idx) => (
-            <div key={rec.id || idx} className="rec-item" id={`rec-${idx}`}>
+            <div
+              key={rec.id || idx}
+              className="rec-item"
+              id={`rec-${idx}`}
+              onClick={() => handleClickRec(rec)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClickRec(rec); }}
+              style={{ cursor: 'pointer' }}
+            >
               <div className="rec-info">
                 <div className="rec-title">
                   {rec.recommended_music?.title || `Track #${rec.recommended_music_id}`}
                 </div>
                 <div className="rec-artist">
-                  {rec.recommended_music?.artist || '—'}
+                  {rec.recommended_music?.artist || ''}
                   {rec.recommended_music?.genre && (
-                    <span className="tag" style={{ marginLeft: 8 }}>
+                    <span className="tag ml-sm">
                       {rec.recommended_music.genre}
                     </span>
                   )}
@@ -192,12 +237,62 @@ export default function RecommendationsPage() {
 
       {!loading && recommendations.length === 0 && !error && (
         <div className="empty-state">
-          <div className="empty-state-icon">🎯</div>
+          <div className="empty-state-icon">Find Similar</div>
           <p className="empty-state-text">
             Select a track and click "Find Similar" to get recommendations
           </p>
         </div>
       )}
+
+      {/* A/B Stats */}
+      <div className="card mt-lg">
+        <div className="flex-center gap-sm mb-sm">
+          <h3 className="mb-0">A/B Test Results</h3>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleLoadStats}
+            disabled={loadingStats}
+          >
+            {loadingStats ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+
+        {abStats && (
+          <div>
+            <p className="text-sm text-muted mb-md">
+              Total events recorded: {abStats.total_events}
+            </p>
+            {abStats.rows.length === 0 ? (
+              <p className="text-sm text-muted">No data yet</p>
+            ) : (
+              <div className="ab-stats-grid">
+                <div className="ab-stats-header">
+                  <span>Algorithm</span>
+                  <span>Impressions</span>
+                  <span>Clicks</span>
+                  <span>Plays</span>
+                  <span>CTR</span>
+                </div>
+                {abStats.rows.map((row) => (
+                  <div key={row.algorithm} className="ab-stats-row">
+                    <span className="tag">{ALGO_LABELS[row.algorithm] || `Algo #${row.algorithm}`}</span>
+                    <span>{row.impressions}</span>
+                    <span>{row.clicks}</span>
+                    <span>{row.plays}</span>
+                    <span className={row.ctr > 0 ? 'text-success' : ''}>
+                      {row.ctr}%
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {!abStats && !loadingStats && (
+          <p className="text-sm text-muted">Click Refresh to load A/B test data</p>
+        )}
+      </div>
     </>
   );
 }

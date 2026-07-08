@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.models.audio_features import AudioFeatures
 from app.models.music import Music
-from app.utils.audio_utils import extract_feature_vector
+from app.utils.audio_utils import audio_features_to_dict, extract_feature_vector
 
 logger = logging.getLogger(__name__)
 
@@ -129,16 +129,7 @@ class GenreClassifier:
         labels: List[str] = []
 
         for music, af in rows:
-            feat_dict = {
-                "tempo": af.tempo,
-                "key": af.key,
-                "mode": af.mode,
-                "energy": af.energy,
-                "valence": af.valence,
-                "loudness": af.loudness,
-                "spectral_centroid_mean": af.spectral_centroid_mean,
-                "mfcc_mean": af.mfcc_mean,
-            }
+            feat_dict = audio_features_to_dict(af)
             vec = extract_feature_vector(feat_dict)
             if vec is not None:
                 vectors.append(vec)
@@ -248,16 +239,7 @@ class GenreClassifier:
         if af is None:
             return None
 
-        feat_dict = {
-            "tempo": af.tempo,
-            "key": af.key,
-            "mode": af.mode,
-            "energy": af.energy,
-            "valence": af.valence,
-            "loudness": af.loudness,
-            "spectral_centroid_mean": af.spectral_centroid_mean,
-            "mfcc_mean": af.mfcc_mean,
-        }
+        feat_dict = audio_features_to_dict(af)
         vec = extract_feature_vector(feat_dict)
         if vec is None:
             return None
