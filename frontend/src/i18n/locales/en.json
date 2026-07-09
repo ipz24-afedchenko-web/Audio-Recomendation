@@ -7,7 +7,11 @@
     "artist": "Artist",
     "album": "Album",
     "duration": "Duration",
-    "size": "Size"
+    "size": "Size",
+    "langUA": "УКР",
+    "langEN": "EN",
+    "themeLight": "Light",
+    "themeDark": "Dark"
   },
   "navbar": {
     "dashboard": "Dashboard",
@@ -19,7 +23,10 @@
     "logout": "Logout",
     "login": "Login",
     "register": "Register",
-    "switchLanguage": "Switch language"
+    "switchLanguage": "Switch language",
+    "language": "Language",
+    "themeToLight": "Switch to light theme",
+    "themeToDark": "Switch to dark theme"
   },
   "nav": {
     "uploadSingle": "Single Track",
@@ -107,6 +114,12 @@
     "analyzing": "Analysing…",
     "tabLocal": "From File",
     "tabSpotify": "From Spotify",
+    "dropzone": {
+      "active": "Release to upload",
+      "inactive": "Drag & drop your audio here",
+      "hint": "or click to browse · MP3, WAV, FLAC, OGG",
+      "selected": "Selected file"
+    },
     "spotify": {
       "searchPlaceholder": "Search the Spotify catalog…",
       "searchButton": "Search",

@@ -7,7 +7,11 @@
     "artist": "Виконавець",
     "album": "Альбом",
     "duration": "Тривалість",
-    "size": "Розмір"
+    "size": "Розмір",
+    "langUA": "УКР",
+    "langEN": "EN",
+    "themeLight": "Світла",
+    "themeDark": "Темна"
   },
   "navbar": {
     "dashboard": "Головна",
@@ -19,7 +23,10 @@
     "logout": "Вийти",
     "login": "Увійти",
     "register": "Реєстрація",
-    "switchLanguage": "Змінити мову"
+    "switchLanguage": "Змінити мову",
+    "language": "Мова",
+    "themeToLight": "Перемкнути на світлу тему",
+    "themeToDark": "Перемкнути на темну тему"
   },
   "nav": {
     "uploadSingle": "Один трек",
@@ -107,6 +114,12 @@
     "analyzing": "Аналіз…",
     "tabLocal": "З файлу",
     "tabSpotify": "З Spotify",
+    "dropzone": {
+      "active": "Відпустіть, щоб завантажити",
+      "inactive": "Перетягніть аудіо сюди",
+      "hint": "або натисніть, щоб вибрати · MP3, WAV, FLAC, OGG",
+      "selected": "Вибраний файл"
+    },
     "spotify": {
       "searchPlaceholder": "Шукати у каталозі Spotify…",
       "searchButton": "Шукати",

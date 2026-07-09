@@ -1,11 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../utils/AuthContext';
+import { useTheme } from '../utils/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import strings from '../strings';
 
 export default function Navbar() {
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const { i18n } = useTranslation();
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -19,15 +21,21 @@ export default function Navbar() {
   const toggleLang = useCallback(() => {
     const next = i18n.language === 'en' ? 'uk' : 'en';
     i18n.changeLanguage(next);
-    localStorage.setItem('app-language', next);
+    try {
+      localStorage.setItem('app-language', next);
+    } catch {
+      /* ignore */
+    }
   }, [i18n]);
 
+  const langLabel = i18n.language === 'uk' ? strings.common.langUA : strings.common.langEN;
   const closeMobile = () => setMobileOpen(false);
 
   return (
     <nav className="navbar" id="main-navbar">
       <div className="navbar-inner">
         <NavLink to="/" className="navbar-brand">
+          <span className="brand-mark" aria-hidden="true">♪</span>
           Music<span>Rec</span>
         </NavLink>
 
@@ -35,6 +43,7 @@ export default function Navbar() {
           className={`hamburger${mobileOpen ? ' hamburger--open' : ''}`}
           onClick={() => setMobileOpen((p) => !p)}
           aria-label="Menu"
+          aria-expanded={mobileOpen}
         >
           <span /><span /><span />
         </button>
@@ -91,9 +100,25 @@ export default function Navbar() {
               <NavLink to="/register" onClick={closeMobile}>{strings.navbar.register}</NavLink>
             </>
           )}
-          <button className="lang-switcher" onClick={toggleLang} title={strings.navbar.switchLanguage}>
-            {i18n.language === 'en' ? 'UK' : 'EN'}
-          </button>
+
+          <div className="header-controls">
+            <button
+              className="lang-switcher"
+              onClick={toggleLang}
+              title={strings.navbar.language}
+              aria-label={strings.navbar.language}
+            >
+              {langLabel}
+            </button>
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? strings.navbar.themeToLight : strings.navbar.themeToDark}
+              aria-label={theme === 'dark' ? strings.navbar.themeToLight : strings.navbar.themeToDark}
+            >
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
+          </div>
         </div>
       </div>
     </nav>

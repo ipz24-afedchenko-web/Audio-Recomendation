@@ -3,14 +3,26 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import Plot from 'react-plotly.js';
 import { analyzeAPI, musicAPI } from '../services/api';
+import { useChartTheme } from '../utils/useChartTheme';
 import strings from '../strings';
 
 const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+/** Convert a #rrggbb token to an rgba() string with the given alpha. */
+function hexToRgba(hex, alpha) {
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6) return hex;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
 
 export default function AnalyzePage() {
   const { musicId } = useParams();
   const navigate = useNavigate();
   useTranslation();
+  const chart = useChartTheme();
 
   const [track, setTrack] = useState(null);
   const [features, setFeatures] = useState(null);
@@ -19,6 +31,7 @@ export default function AnalyzePage() {
 
   useEffect(() => {
     loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [musicId]);
 
   const loadData = async () => {
@@ -63,14 +76,17 @@ export default function AnalyzePage() {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  // Plotly layout defaults for dark theme
+  // Plotly layout colours follow the active theme tokens.
   const plotLayout = {
     paper_bgcolor: 'transparent',
     plot_bgcolor: 'transparent',
-    font: { color: '#9090a0', family: 'Inter, sans-serif', size: 12 },
+    font: { color: chart.text, family: chart.font, size: 12 },
     margin: { t: 30, r: 20, b: 40, l: 50 },
     height: 300,
   };
+
+  const accentBar = hexToRgba(chart.accent, 0.7);
+  const dangerBar = hexToRgba(chart.danger, 0.55);
 
   // Radar chart data
   const radarData = features
@@ -82,8 +98,12 @@ export default function AnalyzePage() {
             features.valence ?? 0,
             features.tempo ? Math.min(features.tempo / 200, 1) : 0,
             features.loudness ? Math.min(Math.max((features.loudness + 20) / 18, 0), 1) : 0,
-            features.spectral_centroid_mean ? Math.min(features.spectral_centroid_mean / 6000, 1) : 0,
-            features.zero_crossing_rate_mean ? Math.min(features.zero_crossing_rate_mean * 5, 1) : 0,
+            features.spectral_centroid_mean
+              ? Math.min(features.spectral_centroid_mean / 6000, 1)
+              : 0,
+            features.zero_crossing_rate_mean
+              ? Math.min(features.zero_crossing_rate_mean * 5, 1)
+              : 0,
           ],
           theta: [
             strings.analyze.energy,
@@ -94,9 +114,9 @@ export default function AnalyzePage() {
             strings.analyze.zcr,
           ],
           fill: 'toself',
-          fillcolor: 'rgba(108, 92, 231, 0.15)',
-          line: { color: '#6c5ce7', width: 2 },
-          marker: { color: '#6c5ce7', size: 5 },
+          fillcolor: chart.accentSoft,
+          line: { color: chart.accent, width: 2 },
+          marker: { color: chart.accent, size: 5 },
         },
       ]
     : [];
@@ -110,8 +130,8 @@ export default function AnalyzePage() {
             x: features.mfcc_mean.map((_, i) => `MFCC ${i + 1}`),
             y: features.mfcc_mean,
             marker: {
-              color: features.mfcc_mean.map(
-                (v) => (v >= 0 ? 'rgba(108, 92, 231, 0.7)' : 'rgba(231, 76, 60, 0.5)')
+              color: features.mfcc_mean.map((v) =>
+                v >= 0 ? accentBar : dangerBar
               ),
             },
           },
@@ -126,7 +146,7 @@ export default function AnalyzePage() {
             type: 'bar',
             x: KEY_NAMES,
             y: features.chroma_stft_mean,
-            marker: { color: 'rgba(108, 92, 231, 0.6)' },
+            marker: { color: accentBar },
           },
         ]
       : [];
@@ -137,7 +157,7 @@ export default function AnalyzePage() {
         <button className="btn btn-secondary btn-sm mb-md" onClick={() => navigate('/')}>
           ← {strings.common.back}
         </button>
-        <h1 className="page-title">{track?.title || strings.analyze.trackAnalysis}</h1>
+        <h1 className="page-title">🎵 {track?.title || strings.analyze.trackAnalysis}</h1>
         {track?.artist && <p className="page-subtitle">{track.artist}</p>}
         {track?.source === 'spotify' && track?.external_id && (
           <div className="spotify-preview-wrap mb-md">
@@ -170,7 +190,11 @@ export default function AnalyzePage() {
           <div className="feature-value">
             {features?.key != null ? KEY_NAMES[features.key] : '—'}
             <span className="feature-unit">
-              {features?.mode === 1 ? strings.analyze.major : features?.mode === 0 ? strings.analyze.minor : ''}
+              {features?.mode === 1
+                ? strings.analyze.major
+                : features?.mode === 0
+                ? strings.analyze.minor
+                : ''}
             </span>
           </div>
         </div>
@@ -210,8 +234,14 @@ export default function AnalyzePage() {
             ...plotLayout,
             polar: {
               bgcolor: 'transparent',
-              radialaxis: { visible: true, range: [0, 1], color: '#35354a', tickfont: { size: 10 } },
-              angularaxis: { color: '#606070' },
+              radialaxis: {
+                visible: true,
+                range: [0, 1],
+                color: chart.borderLight,
+                tickfont: { size: 10, color: chart.textMuted },
+                gridcolor: chart.border,
+              },
+              angularaxis: { color: chart.textMuted },
             },
           }}
           config={{ displayModeBar: false, responsive: true }}
@@ -227,8 +257,8 @@ export default function AnalyzePage() {
             data={mfccData}
             layout={{
               ...plotLayout,
-              xaxis: { color: '#606070', tickangle: -45 },
-              yaxis: { color: '#606070', gridcolor: '#1a1a25' },
+              xaxis: { color: chart.text, tickangle: -45, gridcolor: 'transparent' },
+              yaxis: { color: chart.text, gridcolor: chart.border },
             }}
             config={{ displayModeBar: false, responsive: true }}
             className="w-full"
@@ -244,8 +274,8 @@ export default function AnalyzePage() {
             data={chromaData}
             layout={{
               ...plotLayout,
-              xaxis: { color: '#606070' },
-              yaxis: { color: '#606070', gridcolor: '#1a1a25' },
+              xaxis: { color: chart.text, gridcolor: 'transparent' },
+              yaxis: { color: chart.text, gridcolor: chart.border },
             }}
             config={{ displayModeBar: false, responsive: true }}
             className="w-full"

@@ -1,6 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './utils/AuthContext';
+import { ThemeProvider } from './utils/ThemeContext';
 import Navbar from './components/Navbar';
 import ProtectedRoute from './components/ProtectedRoute';
 import LoginPage from './pages/LoginPage';
@@ -15,11 +16,12 @@ import AdminDashboardPage from './pages/AdminDashboardPage';
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <div className="app-layout">
-          <Navbar />
-          <main className="main-content">
-            <Routes>
+      <ThemeProvider>
+        <AuthProvider>
+          <div className="app-layout">
+            <Navbar />
+            <main className="main-content">
+              <Routes>
               {/* Public */}
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
@@ -73,10 +75,11 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
-            </Routes>
-          </main>
-        </div>
-      </AuthProvider>
+              </Routes>
+            </main>
+          </div>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }
