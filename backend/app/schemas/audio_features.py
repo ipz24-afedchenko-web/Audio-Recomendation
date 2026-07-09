@@ -24,6 +24,7 @@ class AudioFeaturesBase(BaseModel):
     chroma_stft_mean: Optional[List[float]] = None
     chroma_stft_std: Optional[List[float]] = None
     cluster_id: Optional[int] = None
+    feature_origin: str = "librosa"
 
 
 class AudioFeaturesCreate(AudioFeaturesBase):
@@ -33,6 +34,7 @@ class AudioFeaturesCreate(AudioFeaturesBase):
 class AudioFeaturesResponse(AudioFeaturesBase):
     id: int
     music_id: int
+    feature_origin: str = "librosa"
 
     class Config:
         from_attributes = True

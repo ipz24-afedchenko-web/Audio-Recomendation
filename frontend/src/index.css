@@ -502,6 +502,11 @@ a:hover {
   color: var(--warning);
 }
 
+.tag-spotify {
+  background: rgba(29, 185, 84, 0.15);
+  color: #1db954;
+}
+
 /* ============================================================
    Feature Display
    ============================================================ */
@@ -1205,4 +1210,94 @@ a:hover {
   .drop-zone {
     padding: 24px 16px;
   }
+}
+
+/* ── Upload: tabbed local / Spotify source ── */
+.tab-bar {
+  display: flex;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-md);
+}
+
+.tab {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 10px 16px;
+  cursor: pointer;
+  font-size: var(--font-size);
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab-active {
+  color: var(--text);
+  border-bottom-color: var(--accent, #6c8cff);
+  font-weight: 600;
+}
+
+.spotify-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.spotify-results .track-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 12px 14px;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.track-thumb {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.track-meta {
+  min-width: 0;
+}
+
+.track-title {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.track-sub {
+  font-size: var(--font-size-sm);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.spotify-preview {
+  margin-top: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.spotify-preview-wrap {
+  max-width: 600px;
+}
+
+.text-xs {
+  font-size: var(--font-size-xs);
+}
+
+.mt-xs {
+  margin-top: 4px;
 }

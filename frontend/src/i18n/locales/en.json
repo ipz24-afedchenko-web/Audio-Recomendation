@@ -104,7 +104,25 @@
     "complete": "Analysis complete — redirecting to your library…",
     "submit": "Upload",
     "uploading": "Uploading…",
-    "analyzing": "Analysing…"
+    "analyzing": "Analysing…",
+    "tabLocal": "From File",
+    "tabSpotify": "From Spotify",
+    "spotify": {
+      "searchPlaceholder": "Search the Spotify catalog…",
+      "searchButton": "Search",
+      "searching": "Searching…",
+      "emptyQuery": "Type a song or artist to search",
+      "noResults": "No tracks found",
+      "searchFailed": "Spotify search failed",
+      "addButton": "Add to library",
+      "adding": "Adding…",
+      "added": "Added to your library!",
+      "addFailed": "Could not add track",
+      "alreadyAdded": "This track is already in your library",
+      "disabled": "Spotify integration is not configured",
+      "previewLabel": "30s preview",
+      "note": "Spotify tracks are added with their audio features (free tier). Playback is a 30-second preview only."
+    }
   },
   "analyze": {
     "loading": "Loading analysis…",
@@ -124,7 +142,9 @@
     "audioProfile": "Audio Profile",
     "mfcc": "MFCC Coefficients (Timbre)",
     "chromagram": "Chromagram (Pitch Classes)",
-    "getRecs": "Get Recommendations for This Track"
+    "getRecs": "Get Recommendations for This Track",
+    "previewLabel": "30s preview",
+    "previewNote": "Streaming preview provided by Spotify (30s). Features are sourced from the Spotify Web API."
   },
   "recommend": {
     "title": "Recommendations",

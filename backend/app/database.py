@@ -32,6 +32,22 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     s3_endpoint: Optional[str] = None
 
+    # Spotify Web API (free tier).  Client Credentials flow.  NOTE: the
+    # free Spotify Web API now requires a Premium subscription on the app
+    # owner's account, so this is typically left disabled.  Set
+    # SPOTIFY_ENABLED=true only when usable; otherwise the catalog tab is
+    # hidden on the frontend.  ``spotify_enabled`` is derived True only
+    # when explicitly enabled AND both credentials are present.
+    spotify_client_id: str = ""
+    spotify_client_secret: str = ""
+    spotify_enabled: bool = False
+
+    # Custom-file lifecycle.  When True (default), a locally uploaded file
+    # is deleted from storage as soon as librosa analysis completes — the
+    # app keeps only the extracted features (free-hosting friendly).  Dev
+    # can set False to retain files for debugging.
+    delete_local_after_analyze: bool = True
+
     # Used by validators — never expose this in /api/health.
     environment: str = "development"
 
@@ -67,6 +83,25 @@ class Settings(BaseSettings):
             )
             return False
         return v
+
+    @field_validator("spotify_enabled", mode="before")
+    @classmethod
+    def _derive_spotify_enabled(cls, v):
+        # Allow explicit override from env, otherwise derive from credentials.
+        if isinstance(v, str):
+            return v.lower() in ("1", "true", "yes", "on")
+        return v
+
+    def model_post_init(self, __context) -> None:
+        # The free Spotify Web API now requires a Premium owner account, so
+        # we do NOT auto-enable from credentials alone.  Enable only when
+        # SPOTIFY_ENABLED is explicitly true AND both credentials exist.
+        if isinstance(self.spotify_enabled, bool) and self.spotify_enabled:
+            self.spotify_enabled = bool(
+                self.spotify_client_id and self.spotify_client_secret
+            )
+        else:
+            self.spotify_enabled = False
 
 
 @lru_cache()

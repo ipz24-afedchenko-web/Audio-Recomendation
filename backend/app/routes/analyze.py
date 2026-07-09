@@ -4,7 +4,7 @@ import logging
 
 from app.database import get_db
 from app.models.user import User
-from app.models.music import Music
+from app.models.music import Music, SOURCE_SPOTIFY
 from app.models.audio_features import AudioFeatures
 from app.schemas.audio_features import AudioFeaturesResponse
 from app.utils.auth import get_current_active_user
@@ -44,7 +44,18 @@ async def analyze_music(
             detail="Not authorized to analyze this music",
         )
 
-    # 2. Delegate.  We do this synchronously in the request (so the
+    # 2. Catalog tracks (e.g. Spotify) already carry features from the
+    #    source API — there is no local file to analyze.  Refuse the
+    #    request with a clear message instead of failing on a missing
+    #    ``file_path`` deep inside librosa.
+    if music.source == SOURCE_SPOTIFY:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This track's features come from the source catalog; "
+                   "local re-analysis is not available.",
+        )
+
+    # 3. Delegate.  We do this synchronously in the request (so the
     # caller gets the AudioFeatures back in the response).  The
     # background-task path is used by the upload route for the common
     # case of fresh uploads.

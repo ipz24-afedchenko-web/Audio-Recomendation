@@ -46,3 +46,29 @@ def test_algorithm_time_index_in_model():
     from app.models.algorithm_event import AlgorithmEvent
     names = [idx.name for idx in AlgorithmEvent.__table_args__]
     assert "ix_ab_algorithm_time" in names
+
+
+def test_migration_010_revision_chain():
+    p = os.path.join(
+        os.path.dirname(__file__),
+        "..", "alembic", "versions",
+        "010_hybrid_source_model.py",
+    )
+    mod = _load_migration(p, "m010_hybrid")
+    assert mod.revision == "010"
+    assert mod.down_revision == "009"
+
+
+def test_music_partial_indexes_in_model():
+    """Hybrid dedup indexes are declared on Music.__table_args__."""
+    from app.models.music import Music
+    names = [idx.name for idx in Music.__table_args__ if hasattr(idx, "name")]
+    assert "ix_music_user_hash" in names
+    assert "ix_music_user_external" in names
+    assert "ix_music_source" in names
+
+
+def test_audio_features_feature_origin_in_model():
+    from app.models.audio_features import AudioFeatures
+    assert "feature_origin" in AudioFeatures.__table__.columns
+

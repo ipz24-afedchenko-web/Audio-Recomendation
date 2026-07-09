@@ -229,7 +229,22 @@ export default function RecommendationsPage() {
                       {rec.recommended_music.genre}
                     </span>
                   )}
+                  {rec.recommended_music?.source === 'spotify' && (
+                    <span className="tag tag-spotify ml-sm">Spotify</span>
+                  )}
                 </div>
+                {rec.recommended_music?.source === 'spotify' && rec.recommended_music?.external_id && (
+                  <iframe
+                    className="spotify-preview mt-sm"
+                    src={`https://open.spotify.com/embed/track/${rec.recommended_music.external_id}?utm_source=generator`}
+                    width="100%"
+                    height="80"
+                    frameBorder="0"
+                    loading="lazy"
+                    title={strings.analyze.previewLabel}
+                    allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                  />
+                )}
               </div>
               <div className="rec-score">
                 {(rec.similarity_score * 100).toFixed(0)}%

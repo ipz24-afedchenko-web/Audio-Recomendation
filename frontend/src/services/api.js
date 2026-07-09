@@ -60,6 +60,15 @@ export const musicAPI = {
 
   aiStatus: () => api.get('/music/ai-status'),
 
+  /* Spotify (free tier, Client Credentials — no Premium needed) */
+  spotifyStatus: () => api.get('/spotify/status'),
+
+  spotifySearch: (q, limit = 10) =>
+    api.get('/spotify/search', { params: { q, limit } }),
+
+  addSpotify: (spotifyTrackId) =>
+    api.post('/spotify/add', { spotify_track_id: spotifyTrackId }),
+
   /**
    * Poll a track's analysis status until it lands in a terminal state
    * (ready / error) or the timeout expires.

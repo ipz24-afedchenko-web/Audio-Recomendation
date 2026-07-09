@@ -116,7 +116,11 @@ export default function DashboardPage() {
                 {track.artist && <span>{strings.common.artist}: {track.artist}</span>}
                 {track.album && <span>{strings.common.album}: {track.album}</span>}
                 <span>{strings.common.duration}: {formatDuration(track.duration)}</span>
-                <span>{strings.common.size}: {formatSize(track.file_size)}</span>
+                {track.source === 'spotify' ? (
+                  <span className="tag tag-spotify mt-sm">Spotify</span>
+                ) : (
+                  <span>{strings.common.size}: {formatSize(track.file_size)}</span>
+                )}
                 {track.genre && (
                   <span className="mt-sm">
                     <span className="tag">{track.genre}</span>
@@ -125,18 +129,20 @@ export default function DashboardPage() {
               </div>
 
               <div className="music-actions">
-                <button
-                  className="btn btn-primary btn-sm"
-                  onClick={() => handleAnalyze(track.id)}
-                  disabled={analyzingId === track.id}
-                  id={`analyze-btn-${track.id}`}
-                >
-                  {analyzingId === track.id ? (
-                    <><div className="spinner" /> {strings.dashboard.analyzing}</>
-                  ) : (
-                    strings.dashboard.analyze
-                  )}
-                </button>
+                {track.source !== 'spotify' && (
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => handleAnalyze(track.id)}
+                    disabled={analyzingId === track.id}
+                    id={`analyze-btn-${track.id}`}
+                  >
+                    {analyzingId === track.id ? (
+                      <><div className="spinner" /> {strings.dashboard.analyzing}</>
+                    ) : (
+                      strings.dashboard.analyze
+                    )}
+                  </button>
+                )}
                 <button
                   className="btn btn-danger btn-sm"
                   onClick={() => handleDelete(track.id)}

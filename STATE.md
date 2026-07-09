@@ -118,6 +118,68 @@ FastAPI route-ordering bug where `GET /api/recommend/clusters` was shadowed by
 (ai_tagger 19%, train_models 19%, S3Storage, some route paths) is
 acceptable for Low-priority items.
 
+## 0.11. Week 4 — Hybrid Source Model (Spotify + In-Memory) 🎵
+
+Introduced a **free-hosting-friendly hybrid source model** so the app no
+longer needs to store heavy audio files.  Spotify (free tier, Client
+Credentials flow — no Premium) supplies catalog tracks + audio features;
+user uploads are analyzed in-RAM by librosa and the file is deleted
+immediately after (`DELETE_LOCAL_AFTER_ANALYZE=True`).
+
+| # | Area | Change | Resolution |
+|---|------|--------|-----------|
+| 1 | Settings | No Spotify config / file-delete policy. | `app/database.py`: `spotify_client_id`, `spotify_client_secret`, `spotify_enabled` (derived from creds), `delete_local_after_analyze`. |
+| 2 | Model | `Music` assumed a stored file (`file_path` NOT NULL). | `Music.source` ('local'\|'spotify'\|'jamendo'\|'deezer'); nullable `external_id`/`external_uri`/`preview_url`/`stream_url`; `file_path` now nullable; two **partial** unique indexes (per-user local-hash dedup, per-user catalog dedup). `AudioFeatures.feature_origin` ('librosa'\|'spotify') drives the hybrid recommender. |
+| 3 | Storage | Uploads lingered on disk (S3/local). | `app/services/audio_analyzer.py`: `_purge_local_file` deletes the file after a successful **or failed** analysis when `delete_local_after_analyze` is set and `source='local'`. `delete_music` skips storage delete for catalog rows (`file_path` None). |
+| 4 | Spotify | No catalog integration. | `app/services/spotify.py` (`SpotifyClient`: token cache, `search`, `get_track`, `get_audio_features`, `map_to_features` → AudioFeatures-compatible dict; MFCC/chroma synthesised as stubs). `app/routes/spotify.py`: `GET /api/spotify/status`, `GET /api/spotify/search`, `POST /api/spotify/add` (immediately `ready`, dedup 409, no file). Gated by **runtime health probe** (`is_spotify_healthy` / `mark_spotify_unhealthy`, 5-min TTL) so the tab auto-hides on 403/unavailable. Re-enabled via `SPOTIFY_ENABLED=true` now that the owner account has Premium. |
+| 5 | Schema | Migration needed. | `010_hybrid_source_model.py`: adds `source` + external columns, drops legacy non-partial `uq_music_user_hash`/index, recreates as partial unique indexes (SQLite `sqlite_where` / Postgres `postgresql_where`), adds `audio_features.feature_origin`. `alembic/env.py` now honours `DATABASE_URL` env (Render-friendly). |
+| 6 | Frontend | No way to add catalog tracks. | `UploadPage.jsx` now tabbed ("From File" / "From Spotify"): search → 30s Spotify embed preview → "Add to library". Tab is **hidden** unless `GET /api/spotify/status` reports `enabled:true`. `api.js` + `strings.js` (en/uk) + `index.css` (tab + track-row styles). `AudioFeaturesResponse.feature_origin` exposed. |
+
+> **Spotify re-enabled (2026-07-09):** the app owner's account now holds
+> an active Premium subscription, so `SPOTIFY_ENABLED=true` in `.env`
+> re-enables the catalog.  Because Spotify can take **hours** to flip the
+> API flag after purchase (and can lapse again), the integration is now
+> gated by a **runtime health probe** (`app/services/spotify.py`:
+> `is_spotify_healthy` / `mark_spotify_unhealthy` with a 5-min TTL cache).
+> `GET /api/spotify/status` returns `enabled = is_spotify_healthy()`, and
+> a failed live call (e.g. 403) flips the cache so the frontend hides
+> the "From Spotify" tab immediately.  The frontend polls `/spotify/status`
+> every 60s, so the tab appears automatically once Premium activates —
+> no page reload needed.
+
+**Tests**: `tests/test_spotify.py` (5 — search/auth/disabled/ready-track/
+dup-409, all with mocked `SpotifyClient`), `tests/test_migrations.py` (+3:
+`010` revision chain, model indexes, `feature_origin` column). Total **186
+passed** (was 176). `010` DDL also validated in isolation on SQLite
+(partial unique index correctly blocks duplicate local hashes, allows
+cross-user reuse).
+
+**Definition-of-done check**: hybrid *schema* shipped; **Spotify catalog
+re-enabled** with Premium + runtime health-gate; free-hosting In-Memory
+path is the active MVP. Remaining: real end-to-end `/api/spotify/add` once
+Spotify propagates the Premium API flag (a few hours after purchase).
+
+## 0.12. Week 4 — Hybrid UX Polish (Spotify tracks) 🎧
+
+Closed the gaps between the hybrid schema and the UI so Spotify-sourced
+tracks behave correctly end-to-end.
+
+| # | Area | Change | Resolution |
+|---|------|--------|-----------|
+| 1 | Backend guard | `POST /api/analyze/{id}` crashed (librosa on `file_path=None`) for catalog tracks. | `app/routes/analyze.py` returns **409 Conflict** for `source='spotify'` with a clear message — features come from the catalog, no local re-analysis. |
+| 2 | Dashboard | "Analyze" button + file-size shown for Spotify tracks. | `DashboardPage.jsx` hides the Analyze button for `source='spotify'` and shows a **Spotify** badge instead of file size. `.tag-spotify` CSS (green). |
+| 3 | Analyze page | No way to hear/see a Spotify track. | `AnalyzePage.jsx` renders a 30s Spotify embed (`external_id`) + `previewNote` for `source='spotify'`. `analyze.previewLabel`/`previewNote` strings (en/uk). |
+| 4 | Recommendations | Spotify recs looked identical to local ones. | `RecommendationsPage.jsx` shows a **Spotify** badge + 30s embed per recommended Spotify track. |
+
+**Tests**: `test_spotify.py` extended — `test_add_spotify_creates_ready_track`
+now also asserts `POST /api/analyze/{id}` returns **409** for the Spotify
+track. Total **190 passed**.
+
+**Definition-of-done check**: Spotify tracks are now first-class — added
+with features, shown with preview + badge, excluded from invalid local
+re-analysis, and recommended with playback. The only outstanding item is
+the live Premium-API propagation (backend already wired + health-gated).
+
 ## 0.10. Week 4 — Events Table Tuning (W4-8) 📊
 
 Added a composite B-tree index on `algorithm_events(algorithm, created_at)`
@@ -514,6 +576,7 @@ npm run dev
 | **Auto-analysis** | ✅ Complete | 100% | **BackgroundTask after upload; frontend polls `analysis_status`** |
 | **Rate limiting** | ✅ Complete | 100% | **slowapi on auth routes; no-op in test mode** |
 | **Storage abstraction** | ✅ Complete | 100% | **LocalStorage + S3Storage backends** |
+| **Hybrid source model (Spotify + in-memory)** | ✅ Complete | 100% | **§0.11: `Music.source`/external cols, `feature_origin`, `010` migration, Spotify service+routes (runtime health-gated, re-enabled with Premium), upload purge-after-analyze, tabbed UploadPage (Spotify tab auto-shows/hides via `/spotify/status`)** |
 | **Recommendation cache** | ✅ Complete | 100% | **Optional Redis with 5 min TTL** |
 | **Array columns migration** | ✅ Complete | 100% | **Migration 005: ARRAY(Float) for MFCC/chroma** |
 | **Valence heuristic** | ✅ Complete | 100% | **6 weighted features (was 3 equal-weight)** |
@@ -568,7 +631,7 @@ backlog.  Each item references the original audit number for traceability.
 | S1 | **JWT in `localStorage`** (Audit #14) | ✅ **Done** — Login/register set httpOnly `access_token` cookie via `_set_token_cookie()`. `get_current_user` falls back to cookie when `Authorization` header is absent. Frontend uses `withCredentials: true`, no more localStorage for tokens. `POST /api/auth/logout` clears the cookie. |
 | S2 | **No rate-limiting on auth** | ✅ **Done** — `slowapi` integrated; `5/min` on register, `10/min` on login. Extracted to `app/limiter.py` (no-op in test mode). |
 | S3 | **bcrypt pinned to 3.2.2** | Deferred — `passlib==1.7.4` incompatible with `bcrypt>=4.0.0`. Upgrade once passlib confirms compat. |
-| S4 | **Uploads stored on local disk** | ✅ **Done** — `services/storage.py` with `LocalStorage` + `S3Storage` backends; `get_storage()` singleton; routes use it. |
+| S4 | **Uploads stored on local disk** | ✅ **Done** — `services/storage.py` with `LocalStorage` + `S3Storage` backends; `get_storage()` singleton; routes use it. **Extended (§0.11):** local uploads are deleted right after librosa analysis (`DELETE_LOCAL_AFTER_ANALYZE`), so no files are retained — free-hosting friendly. Spotify catalog tracks carry no file at all. |
 
 ### 11.2 Frontend (medium priority)
 

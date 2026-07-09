@@ -3,16 +3,19 @@ import numpy as np
 from typing import Dict, Optional
 import logging
 
-from app.database import SessionLocal
+from app.database import SessionLocal, get_settings
 from app.models.audio_features import AudioFeatures
 from app.models.music import (
     Music,
+    SOURCE_LOCAL,
     ANALYSIS_STATUS_ANALYZING,
     ANALYSIS_STATUS_READY,
     ANALYSIS_STATUS_ERROR,
 )
 from app.utils.audio_utils import compute_perceptual_fingerprint
 from app.services.storage import get_storage
+
+settings = get_settings()
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +109,7 @@ def run_analysis(music_id: int) -> bool:
                 "Background analysis complete for music_id=%s (tempo=%s)",
                 music_id, features.get("tempo"),
             )
+            _purge_local_file(music, db)
             return True
 
         except Exception as e:  # noqa: BLE001
@@ -115,10 +119,34 @@ def run_analysis(music_id: int) -> bool:
             # not pollute the database.
             music.analysis_error = (str(e) or type(e).__name__)[:500]
             db.commit()
+            # Still purge the file on failure — we never keep uploads.
+            _purge_local_file(music, db)
             return False
 
     finally:
         db.close()
+
+
+def _purge_local_file(music: Music, db) -> None:
+    """Delete the uploaded file from storage once it's no longer needed.
+
+    Only applies to ``source='local'`` tracks when ``DELETE_LOCAL_AFTER_ANALYZE``
+    is enabled (free-hosting friendly: we keep only the features).  Catalog
+    tracks have no file and are skipped.  Failures are logged, never raised.
+    """
+    if not settings.delete_local_after_analyze:
+        return
+    if music.source != SOURCE_LOCAL or not music.file_path:
+        return
+    try:
+        get_storage().delete(music.file_path)
+        music.file_path = None
+        db.commit()
+        logger.info("Purged local file for music_id=%s", music.id)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Failed to purge local file for music_id=%s: %s", music.id, str(e)
+        )
 
 
 class AudioAnalyzer:

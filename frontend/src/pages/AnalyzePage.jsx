@@ -139,6 +139,21 @@ export default function AnalyzePage() {
         </button>
         <h1 className="page-title">{track?.title || strings.analyze.trackAnalysis}</h1>
         {track?.artist && <p className="page-subtitle">{track.artist}</p>}
+        {track?.source === 'spotify' && track?.external_id && (
+          <div className="spotify-preview-wrap mb-md">
+            <iframe
+              className="spotify-preview"
+              src={`https://open.spotify.com/embed/track/${track.external_id}?utm_source=generator`}
+              width="100%"
+              height="80"
+              frameBorder="0"
+              loading="lazy"
+              title={strings.analyze.previewLabel}
+              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+            />
+            <p className="text-xs text-muted mt-xs">{strings.analyze.previewNote}</p>
+          </div>
+        )}
       </div>
 
       {/* Key metrics */}

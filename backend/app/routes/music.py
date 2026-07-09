@@ -240,11 +240,12 @@ def delete_music(
             detail="Not authorized to delete this music"
         )
 
-    # Delete file from storage backend
-    try:
-        get_storage().delete(music.file_path)
-    except Exception as e:
-        logger.warning("Failed to delete file %s: %s", music.file_path, str(e))
+    # Delete file from storage backend (catalog tracks have no file).
+    if music.file_path:
+        try:
+            get_storage().delete(music.file_path)
+        except Exception as e:
+            logger.warning("Failed to delete file %s: %s", music.file_path, str(e))
 
     # Delete from database
     db.delete(music)
