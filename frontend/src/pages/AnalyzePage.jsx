@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Plot from "react-plotly.js";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import {
   Waveform,
   Play,

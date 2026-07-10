@@ -18,11 +18,14 @@ export default defineConfig({
       }
     }
   },
+  optimizeDeps: {
+    include: ['framer-motion'],
+  },
   build: {
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
+          vendor: ['react', 'react-dom', 'react-router-dom', 'framer-motion'],
           plotly: ['plotly.js', 'react-plotly.js'],
         },
       },

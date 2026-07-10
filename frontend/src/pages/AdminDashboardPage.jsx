@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { Users, MusicNotes, Waveform, ChartBar, ArrowUp, Spinner, Shield } from "@phosphor-icons/react";
 import { adminAPI, recommendAPI } from "../services/api";
 import { useToast } from "../components/ui/toast";

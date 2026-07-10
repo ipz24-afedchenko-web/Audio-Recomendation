@@ -16,6 +16,7 @@ import { Slider } from "./ui/slider";
 import { musicAPI } from "../services/api";
 import {
   initSpotifyPlayer,
+  getSpotifyPlayer,
   onSpotifyState,
   onSpotifyError,
   spotifyPlayTrack,
@@ -48,6 +49,10 @@ export default function GlobalPlayer() {
   const [polledPlaying, setPolledPlaying] = useState(false);
   const pollRef = useRef(null);
 
+  // Computed flags used by several effects below — must be declared before
+  // any effect that references them (TDZ guard).
+  const isSpotify = currentTrack?.mode === "spotify";
+
   // Subscribe to Web Playback SDK state + errors (real Spotify playback).
   useEffect(() => {
     const unsubState = onSpotifyState((state) => {
@@ -65,6 +70,33 @@ export default function GlobalPlayer() {
       unsubErr();
     };
   }, []);
+
+  // Continuous position tracking: the SDK `player_state_changed` event only
+  // fires on transitions (play/pause/seek/track change), not every frame.
+  // Poll `getCurrentState()` every second to keep the progress bar smooth.
+  useEffect(() => {
+    if (!sdkReady || !isSpotify) return;
+    let cancelled = false;
+    const tick = async () => {
+      const p = getSpotifyPlayer();
+      if (!p) return;
+      try {
+        const state = await p.getCurrentState();
+        if (!state || cancelled) return;
+        setSdkPlaying(!state.paused);
+        setSdkPosition((state.position || 0) / 1000);
+        setSdkDuration((state.duration || 0) / 1000);
+      } catch {
+        // ignore
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [sdkReady, isSpotify]);
 
   // When a Spotify track becomes active, ensure the SDK is connected for device registration.
   useEffect(() => {
@@ -122,8 +154,6 @@ export default function GlobalPlayer() {
 
   if (!currentTrack) return null;
 
-  const isSpotify = currentTrack.mode === "spotify";
-
   // Best available state: SDK > polled > audio element > static.
   const effectivePlaying = sdkReady ? sdkPlaying : (polledPlaying || isPlaying);
   const effectivePosition = sdkReady
@@ -156,9 +186,17 @@ export default function GlobalPlayer() {
   };
 
   const handleSpotifySeek = (v) => {
-    const posMs = (v[0] / 100) * (effectiveDuration * 1000);
+    const fraction = v[0] / 100;
+    const posMs = fraction * (effectiveDuration * 1000);
     spotifySeek(posMs);
-    if (currentTrack?.src) seek(v[0] / 100 * (duration || 0));
+    // Sync the audio element (preview URL path) and update SDK position
+    // immediately so the progress bar doesn't snap back.
+    if (currentTrack?.src) {
+      seek(fraction * effectiveDuration);
+    }
+    if (sdkReady) {
+      setSdkPosition(fraction * effectiveDuration);
+    }
   };
 
   return (

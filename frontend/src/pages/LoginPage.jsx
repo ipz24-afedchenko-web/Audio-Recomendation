@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { MusicNotes } from "@phosphor-icons/react";
 import { useAuth } from "../utils/AuthContext";
 import { Button } from "../components/ui/button";

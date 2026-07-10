@@ -78,22 +78,23 @@ export function PlayerProvider({ children }) {
     if (!currentTrack) return;
     if (currentTrack.mode === 'spotify') {
       if (currentTrack.src && a) {
+        // Preview URL path — use the audio element directly.
         if (a.paused) a.play().catch(() => {});
         else a.pause();
       } else {
-        if (isPlaying) {
-          spotifyPauseTrack();
-        } else {
-          spotifyResumePlayback();
-        }
-        setIsPlaying((p) => !p);
+        // Full-track SDK path — let the SDK state listener drive isPlaying.
+        setIsPlaying((prev) => {
+          if (prev) spotifyPauseTrack();
+          else spotifyResumePlayback();
+          return !prev;
+        });
       }
       return;
     }
     if (!a) return;
     if (a.paused) a.play().catch(() => {});
     else a.pause();
-  }, [currentTrack, isPlaying]);
+  }, [currentTrack]);
 
   // Load source when track changes (local files + Spotify 30s previews)
   useEffect(() => {

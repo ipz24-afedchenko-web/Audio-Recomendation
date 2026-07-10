@@ -57,7 +57,6 @@ export default function App() {
 
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
-                <GlobalPlayer />
               </BrowserRouter>
             </TooltipProvider>
           </ToastProvider>

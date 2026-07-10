@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import {
   SpotifyLogo,
   CheckCircle,

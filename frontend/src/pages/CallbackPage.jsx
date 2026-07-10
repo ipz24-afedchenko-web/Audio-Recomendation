@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { motion } from "motion/react";
+import { motion } from "framer-motion";
 import { SpotifyLogo, Spinner, CheckCircle, Warning } from "@phosphor-icons/react";
 import { musicAPI } from "../services/api";
 
