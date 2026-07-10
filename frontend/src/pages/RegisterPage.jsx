@@ -1,104 +1,96 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { useAuth } from '../utils/AuthContext';
-import strings from '../strings';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { motion } from "motion/react";
+import { MusicNotes } from "@phosphor-icons/react";
+import { useAuth } from "../utils/AuthContext";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
 
 export default function RegisterPage() {
+  const { t } = useTranslation();
   const { register } = useAuth();
   const navigate = useNavigate();
-  useTranslation();
-
-  const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [form, setForm] = useState({ username: "", email: "", password: "" });
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async (e) => {
     e.preventDefault();
-    setError('');
-
-    if (password.length < 8) {
-      setError(strings.register.passwordMin);
-      return;
-    }
-
+    setError("");
+    if (!form.username) return setError(t("auth.usernameRequired"));
+    if (!form.email) return setError(t("auth.emailRequired"));
+    if (form.password.length < 8) return setError(t("auth.passwordMin"));
     setLoading(true);
     try {
-      await register(username, email, password);
-      navigate('/');
+      await register(form);
+      navigate("/");
     } catch (err) {
-      setError(err.response?.data?.detail || strings.auth.register.submit);
+      const detail = err.response?.data?.detail;
+      if (Array.isArray(detail)) setError(detail[0]?.msg || t("auth.registerError"));
+      else if (typeof detail === "string") setError(detail);
+      else setError(t("auth.registerError"));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="auth-container">
-      <div className="auth-card card">
-        <h1 className="auth-title">{strings.auth.register.welcome}</h1>
-        <p className="auth-subtitle">{strings.auth.register.subtitle}</p>
+    <div className="flex min-h-[100dvh] items-center justify-center px-4">
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+        className="w-full max-w-sm"
+      >
+        <div className="mb-8 flex flex-col items-center text-center">
+          <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <MusicNotes className="h-6 w-6" weight="fill" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight">{t("auth.registerTitle")}</h1>
+          <p className="mt-1 text-sm text-muted-foreground">{t("auth.registerSubtitle")}</p>
+        </div>
 
-        {error && <div className="alert alert-error">{error}</div>}
-
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-username">{strings.auth.register.username}</label>
-            <input
-              id="reg-username"
-              className="form-input"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder={strings.auth.register.placeholderUsername}
-              required
-              autoFocus
-            />
+        <form onSubmit={submit} className="space-y-4 rounded-xl border border-border bg-card p-6 shadow-sm">
+          <div className="space-y-2">
+            <Label htmlFor="username">{t("auth.username")}</Label>
+            <Input id="username" value={form.username} onChange={set("username")} autoComplete="username" placeholder={t("auth.username")} />
           </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-email">{strings.auth.register.email}</label>
-            <input
-              id="reg-email"
-              className="form-input"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={strings.auth.register.placeholderEmail}
-              required
-            />
+          <div className="space-y-2">
+            <Label htmlFor="email">{t("auth.email")}</Label>
+            <Input id="email" type="email" value={form.email} onChange={set("email")} autoComplete="email" placeholder="you@example.com" />
           </div>
-
-          <div className="form-group">
-            <label className="form-label" htmlFor="reg-password">{strings.auth.register.password}</label>
-            <input
-              id="reg-password"
-              className="form-input"
+          <div className="space-y-2">
+            <Label htmlFor="password">{t("auth.password")}</Label>
+            <Input
+              id="password"
               type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={strings.auth.register.placeholderPassword}
-              required
-              minLength={8}
+              value={form.password}
+              onChange={set("password")}
+              autoComplete="new-password"
+              placeholder="••••••••"
             />
           </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary btn-block"
-            disabled={loading}
-            id="register-submit"
-          >
-            {loading ? <><div className="spinner" /> {strings.auth.register.creating}</> : strings.auth.register.submit}
-          </button>
+          {error && (
+            <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>
+          )}
+
+          <Button type="submit" className="w-full" disabled={loading}>
+            {loading ? t("auth.registering") : t("auth.registerButton")}
+          </Button>
         </form>
 
-        <p className="auth-footer">
-          {strings.auth.register.haveAccount} <Link to="/login">{strings.auth.register.signIn}</Link>
+        <p className="mt-6 text-center text-sm text-muted-foreground">
+          {t("auth.haveAccount")}{" "}
+          <Link to="/login" className="font-medium text-primary hover:underline">
+            {t("auth.loginLink")}
+          </Link>
         </p>
-      </div>
+      </motion.div>
     </div>
   );
 }

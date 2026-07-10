@@ -1,212 +1,284 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import Plot from 'react-plotly.js';
-import { analyzeAPI, musicAPI } from '../services/api';
-import { useChartTheme } from '../utils/useChartTheme';
-import Reveal from '../components/Reveal';
-import { usePlayer } from '../context/PlayerContext';
+import { useEffect, useState, useMemo } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import Plot from "react-plotly.js";
+import { motion } from "motion/react";
+import {
+  Waveform,
+  Play,
+  Sparkle,
+  Spinner,
+  MusicNotes,
+  Gauge,
+  Waves,
+  SpeakerHigh,
+  Lightning,
+  Smiley,
+} from "@phosphor-icons/react";
+import { analyzeAPI, musicAPI } from "../services/api";
+import { useAuth } from "../utils/AuthContext";
+import { usePlayer } from "../context/PlayerContext";
+import { useTheme } from "../utils/ThemeContext";
+import { useToast } from "../components/ui/toast";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Skeleton } from "../components/ui/skeleton";
+import StatusBadge from "../components/StatusBadge";
 
-const KEY_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const clamp01 = (v) => {
+  const n = Number(v);
+  if (Number.isNaN(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+};
+const norm = (v, min, max) => clamp01((Number(v) - min) / (max - min));
 
-function hexToRgba(hex, alpha) {
-  const clean = hex.replace('#', '');
-  if (clean.length !== 6) return hex;
-  const r = parseInt(clean.slice(0, 2), 16);
-  const g = parseInt(clean.slice(2, 4), 16);
-  const b = parseInt(clean.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function formatDuration(sec) {
-  if (!sec) return '—';
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+function StatTile({ icon: Icon, label, value, unit }) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Icon className="h-4 w-4" />
+        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
+      </div>
+      <p className="mt-2 text-2xl font-semibold tabular-nums">
+        {value}
+        {unit && <span className="ml-1 text-sm font-normal text-muted-foreground">{unit}</span>}
+      </p>
+    </Card>
+  );
 }
 
 export default function AnalyzePage() {
   const { musicId } = useParams();
-  const navigate = useNavigate();
   const { t } = useTranslation();
-  const chart = useChartTheme();
-  const { play, isSpotifyConnected } = usePlayer();
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { playTrack } = usePlayer();
+  const { theme } = useTheme();
+  const { toast } = useToast();
 
   const [track, setTrack] = useState(null);
   const [features, setFeatures] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { loadData(); }, [musicId]);
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    setError("");
+    Promise.all([
+      musicAPI.getById(musicId).catch(() => null),
+      analyzeAPI.getFeatures(musicId).catch(() => null),
+    ])
+      .then(([tr, fe]) => {
+        if (!active) return;
+        setTrack(tr?.data || null);
+        setFeatures(fe?.data || null);
+      })
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [musicId]);
 
-  const loadData = async () => {
-    try {
-      const [trackRes, featuresRes] = await Promise.all([
-        musicAPI.getById(musicId),
-        analyzeAPI.getFeatures(musicId),
-      ]);
-      setTrack(trackRes.data);
-      setFeatures(featuresRes.data);
-    } catch {
-      setError(t('analyze.loadError'));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const chartLayout = useMemo(() => {
+    const dark = theme === "dark";
+    return {
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      font: { color: dark ? "#a1a1aa" : "#52525b", family: "Geist Variable, sans-serif" },
+      margin: { t: 30, r: 16, b: 30, l: 16 },
+      autosize: true,
+    };
+  }, [theme]);
+
+  const config = { displayModeBar: false, responsive: true };
+
+  const radarData = useMemo(() => {
+    const f = features || {};
+    return [
+      {
+        type: "scatterpolar",
+        r: [
+          norm(f.energy, 0, 1),
+          norm(f.valence, 0, 1),
+          norm(f.tempo, 0, 250),
+          norm(f.loudness, -60, 0),
+          norm(f.spectral_centroid_mean ?? f.brightness, 0, 4000),
+          norm(f.zero_crossing_rate_mean ?? f.zero_crossing_rate, 0, 0.2),
+        ],
+        theta: ["Energy", "Valence", "Tempo", "Loudness", "Brightness", "ZCR"],
+        fill: "toself",
+        line: { color: "#10b981" },
+        fillcolor: "rgba(16,185,129,0.18)",
+        name: "profile",
+      },
+    ];
+  }, [features]);
+
+  const mfccData = useMemo(() => {
+    const arr = features?.mfcc_mean || features?.mfcc || [];
+    return [
+      {
+        type: "bar",
+        x: arr.map((_, i) => `C${i}`),
+        y: arr,
+        marker: { color: "#10b981" },
+        name: "mfcc",
+      },
+    ];
+  }, [features]);
+
+  const chromaData = useMemo(() => {
+    const arr = features?.chroma_stft_mean || features?.chroma || [];
+    const labels = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    return [
+      {
+        type: "bar",
+        x: arr.map((_, i) => labels[i] || `P${i}`),
+        y: arr,
+        marker: { color: "#0ea5e9" },
+        name: "chroma",
+      },
+    ];
+  }, [features]);
 
   if (loading) {
     return (
-      <div className="loading-center">
-        <span className="spinner spinner--lg" />
-        <span>{t('analyze.loading')}</span>
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-80 rounded-xl" />
       </div>
     );
   }
 
-  if (error) {
+  if (error || !track) {
     return (
-      <div>
-        <div className="alert alert--error">{error}</div>
-        <button className="btn btn--ghost" onClick={() => navigate('/')}>← {t('analyze.back')}</button>
+      <div className="rounded-xl border border-border bg-card p-10 text-center">
+        <p className="text-sm text-muted-foreground">{error || t("common.error")}</p>
+        <Button variant="outline" className="mt-4" onClick={() => navigate("/")}>
+          {t("common.back")}
+        </Button>
       </div>
     );
   }
 
+  const isSpotify = Boolean(track.spotify_track_id || track.spotifyTrackId);
   const f = features || {};
-  const accentBar = hexToRgba(chart.accent, 0.72);
-  const dangerBar = hexToRgba(chart.danger, 0.55);
-
-  const plotLayout = {
-    paper_bgcolor: 'transparent',
-    plot_bgcolor: 'transparent',
-    font: { color: chart.text, family: chart.font, size: 12 },
-    margin: { t: 24, r: 16, b: 36, l: 44 },
-    height: 300,
-    showlegend: false,
-  };
-
-  const radarData = features
-    ? [{
-        type: 'scatterpolar',
-        r: [
-          f.energy ?? 0,
-          f.valence ?? 0,
-          f.tempo ? Math.min(f.tempo / 200, 1) : 0,
-          f.loudness ? Math.min(Math.max((f.loudness + 20) / 18, 0), 1) : 0,
-          f.spectral_centroid_mean ? Math.min(f.spectral_centroid_mean / 6000, 1) : 0,
-          f.zero_crossing_rate_mean ? Math.min(f.zero_crossing_rate_mean * 5, 1) : 0,
-        ],
-        theta: [t('analyze.energy'), t('analyze.valence'), t('analyze.tempo'), t('analyze.loudness'), t('analyze.brightness'), t('analyze.zcr')],
-        fill: 'toself',
-        fillcolor: chart.accentSoft,
-        line: { color: chart.accent, width: 2 },
-        marker: { color: chart.accent, size: 5 },
-      }]
-    : [];
-
-  const mfccData = f.mfcc_mean
-    ? [{ type: 'bar', x: f.mfcc_mean.map((_, i) => `MFCC ${i + 1}`), y: f.mfcc_mean, marker: { color: f.mfcc_mean.map((v) => (v >= 0 ? accentBar : dangerBar)) } }]
-    : [];
-
-  const chromaData = f.chroma_stft_mean
-    ? [{ type: 'bar', x: KEY_NAMES, y: f.chroma_stft_mean, marker: { color: accentBar } }]
-    : [];
-
-  const stats = [
-    { label: t('analyze.tempo'), value: f.tempo ? Math.round(f.tempo) : '—', unit: 'BPM' },
-    { label: t('analyze.key'), value: f.key != null ? KEY_NAMES[f.key] : '—', unit: f.mode === 1 ? t('analyze.major') : f.mode === 0 ? t('analyze.minor') : '' },
-    { label: t('analyze.loudness'), value: f.loudness != null ? f.loudness.toFixed(1) : '—', unit: 'dB' },
-    { label: t('analyze.energy'), value: f.energy != null ? (f.energy * 100).toFixed(0) : '—', unit: '%' },
-    { label: t('analyze.valence'), value: f.valence != null ? (f.valence * 100).toFixed(0) : '—', unit: '%' },
-    { label: t('analyze.duration'), value: formatDuration(f.duration), unit: '' },
-  ];
+  const canPlay = isSpotify || track.analysis_status === "ready";
 
   return (
-    <div className="stack-lg">
-      <Reveal>
-        <button className="btn btn--ghost btn--sm" onClick={() => navigate('/')}>← {t('analyze.back')}</button>
-      </Reveal>
-
-      <Reveal className="page-head">
-        <div className="page-head__eyebrow">🎵 {t('analyze.trackAnalysis')}</div>
-        <h1 className="page-head__title">{track?.title || t('analyze.trackAnalysis')}</h1>
-        {track?.artist && <p className="page-head__sub">{track.artist}</p>}
-        {track?.genre && <span className="tag mt-sm">{track.genre}</span>}
-      </Reveal>
-
-      {track?.source === 'spotify' && !isSpotifyConnected && (
-        <Reveal>
-          <a className="btn btn--spotify btn--lg" href="/api/spotify/auth/login" onClick={async (e) => {
-            e.preventDefault();
-            const r = await musicAPI.spotifyAuth.login();
-            window.location.href = r.data.url;
-          }}>
-            Connect Spotify to Play
-          </a>
-        </Reveal>
-      )}
-
-      {track && (
-        <Reveal>
-          <button className="btn btn--primary btn--lg" onClick={() => play(track)}>
-            ▶ {track.source === 'spotify' ? t('analyze.playSpotify') : t('analyze.playLocal')}
-          </button>
-        </Reveal>
-      )}
-
-      {/* Feature stats */}
-      <div className="grid grid--3">
-        {stats.map((s, i) => (
-          <Reveal key={s.label} delay={i} className="stat">
-            <div className="stat__label">{s.label}</div>
-            <div className="stat__value">
-              {s.value}{s.unit && <span className="stat__unit">{s.unit}</span>}
+    <div className="space-y-6">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+        className="flex flex-wrap items-center justify-between gap-4"
+      >
+        <div className="flex items-center gap-4">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
+            <MusicNotes className="h-7 w-7" weight="fill" />
+          </span>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{track.title}</h1>
+            <p className="text-sm text-muted-foreground">{track.artist}</p>
+            <div className="mt-1">
+              <StatusBadge status={track.analysis_status} />
             </div>
-          </Reveal>
-        ))}
-      </div>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => playTrack(track)} disabled={!canPlay}>
+            <Play className="h-4 w-4" />
+            {t("analyze.playLocal")}
+          </Button>
+          <Button className="gap-2" asChild>
+            <Link to="/recommendations">
+              <Sparkle className="h-4 w-4" />
+              {t("analyze.recommendations")}
+            </Link>
+          </Button>
+        </div>
+      </motion.div>
 
-      {/* Charts */}
-      <Reveal className="chart-card">
-        <div className="chart-card__title"><span className="dot" /> {t('analyze.audioProfile')}</div>
-        <Plot
-          data={radarData}
-          layout={{ ...plotLayout, polar: { bgcolor: 'transparent', radialaxis: { visible: true, range: [0, 1], color: chart.borderLight, tickfont: { size: 10, color: chart.textMuted }, gridcolor: chart.border }, angularaxis: { color: chart.textMuted } } }}
-          config={{ displayModeBar: false, responsive: true }}
-          style={{ width: '100%' }}
-        />
-      </Reveal>
+      {!features ? (
+        <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center">
+          <Spinner className="mx-auto mb-3 h-6 w-6 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">{t("analyze.noData")}</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StatTile icon={Gauge} label={t("analyze.tempo")} value={Math.round(f.tempo || 0)} unit="BPM" />
+            <StatTile icon={Waves} label={t("analyze.key")} value={f.key_name || f.key || "—"} />
+            <StatTile icon={Waves} label={t("analyze.loudness")} value={Math.round(f.loudness || 0)} unit="dB" />
+            <StatTile icon={Lightning} label={t("analyze.energy")} value={Math.round((f.energy || 0) * 100)} unit="%" />
+          </div>
 
-      {mfccData.length > 0 && (
-        <Reveal className="chart-card">
-          <div className="chart-card__title"><span className="dot" /> {t('analyze.mfcc')}</div>
-          <Plot
-            data={mfccData}
-            layout={{ ...plotLayout, xaxis: { color: chart.text, tickangle: -45, gridcolor: 'transparent' }, yaxis: { color: chart.text, gridcolor: chart.border } }}
-            config={{ displayModeBar: false, responsive: true }}
-            style={{ width: '100%' }}
-          />
-        </Reveal>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">{t("analyze.radarTitle")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Plot
+                  data={radarData}
+                  layout={{ ...chartLayout, polar: { bgcolor: "transparent" } }}
+                  config={config}
+                  style={{ width: "100%", height: 320 }}
+                  useResizeHandler
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Smiley className="h-4 w-4" /> {t("analyze.valence")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-3xl font-semibold tabular-nums">{Math.round((f.valence || 0) * 100)}%</p>
+                <p className="mt-1 text-xs text-muted-foreground">Valence</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">{t("analyze.mfccTitle")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Plot
+                  data={mfccData}
+                  layout={chartLayout}
+                  config={config}
+                  style={{ width: "100%", height: 300 }}
+                  useResizeHandler
+                />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm">{t("analyze.chromaTitle")}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Plot
+                  data={chromaData}
+                  layout={chartLayout}
+                  config={config}
+                  style={{ width: "100%", height: 300 }}
+                  useResizeHandler
+                />
+              </CardContent>
+            </Card>
+          </div>
+        </>
       )}
-
-      {chromaData.length > 0 && (
-        <Reveal className="chart-card">
-          <div className="chart-card__title"><span className="dot" /> {t('analyze.chromagram')}</div>
-          <Plot
-            data={chromaData}
-            layout={{ ...plotLayout, xaxis: { color: chart.text, gridcolor: 'transparent' }, yaxis: { color: chart.text, gridcolor: chart.border } }}
-            config={{ displayModeBar: false, responsive: true }}
-            style={{ width: '100%' }}
-          />
-        </Reveal>
-      )}
-
-      <Reveal className="text-center mt-lg">
-        <button className="btn btn--primary btn--lg" onClick={() => navigate('/recommendations', { state: { musicId: parseInt(musicId, 10) } })}>
-          ✨ {t('analyze.getRecs')}
-        </button>
-      </Reveal>
     </div>
   );
 }

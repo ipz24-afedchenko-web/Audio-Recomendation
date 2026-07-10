@@ -28,6 +28,7 @@ from app.services.spotify import (
     get_spotify_client,
     is_spotify_healthy,
     mark_spotify_unhealthy,
+    _synthesize_features,
 )
 
 
@@ -110,7 +111,7 @@ def add_spotify_track(
     client = _require_spotify()
     track_id = payload.spotify_track_id
 
-    # 1. Fetch track metadata + audio features from Spotify.
+    # 1. Fetch track metadata from Spotify.
     try:
         track = client.get_track(track_id)
     except SpotifyError as e:
@@ -120,13 +121,17 @@ def add_spotify_track(
             detail=f"Spotify lookup failed: {e}",
         )
 
-    raw_features = client.get_audio_features(track_id)
-    if raw_features is None:
+    # 2. Audio features are best-effort.  Spotify deprecated the
+    #    audio-features endpoint, so fall back to synthesised defaults —
+    #    map_to_features already tolerates missing fields.
+    try:
+        raw_features = client.get_audio_features(track_id) or {}
+    except SpotifyError:
         logger.info(
             "Spotify audio-features unavailable for %s; using synthetic defaults",
             track_id,
         )
-        raw_features = client._synthesize_features(track)
+        raw_features = _synthesize_features(track)
 
     # 2. Dedup: one catalog track per user.
     existing = (

@@ -1,76 +1,128 @@
-import React, { useRef, useCallback } from 'react';
-import { useTranslation } from 'react-i18next';
-import { usePlayer } from '../context/PlayerContext';
+import { useTranslation } from "react-i18next";
+import {
+  Play,
+  Pause,
+  X,
+  SpotifyLogo,
+  MusicNote,
+  SpeakerHigh,
+  SpeakerLow,
+} from "@phosphor-icons/react";
+import { usePlayer } from "../context/PlayerContext";
+import { Slider } from "./ui/slider";
+import { cn } from "../lib/utils";
 
-function formatTime(sec) {
-  if (!sec || !isFinite(sec)) return '0:00';
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${m}:${String(s).padStart(2, '0')}`;
+function formatTime(s) {
+  if (!s || Number.isNaN(s)) return "0:00";
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
 export default function GlobalPlayer() {
   const { t } = useTranslation();
-  const { currentTrack, isPlaying, progress, duration, volume, togglePlay, seek, setVolume } = usePlayer();
-  const seekRef = useRef(null);
-
-  const handleSeek = useCallback((e) => {
-    const rect = seekRef.current.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    seek(fraction);
-  }, [seek]);
-
-  const handleVolume = useCallback((e) => {
-    setVolume(parseFloat(e.target.value));
-  }, [setVolume]);
+  const { currentTrack, isPlaying, progress, duration, volume, togglePlay, setVolume, seek, stop } =
+    usePlayer();
 
   if (!currentTrack) return null;
 
-  const isSpotify = currentTrack.source === 'spotify';
+  const isSpotify = currentTrack.mode === "spotify";
 
   return (
-    <div className="global-player">
-      <div className="global-player__inner">
-        {/* Play/Pause */}
-        <button className="global-player__play" onClick={togglePlay} aria-label={isPlaying ? t('player.pause') : t('player.play')}>
-          {isPlaying ? '⏸' : '▶'}
-        </button>
-
-        {/* Track info */}
-        <div className="global-player__info">
-          <span className="global-player__title">{currentTrack.title || t('player.unknown')}</span>
-          {currentTrack.artist && <span className="global-player__artist">{currentTrack.artist}</span>}
-          <span className={`global-player__badge global-player__badge--${isSpotify ? 'spotify' : 'local'}`}>
-            {isSpotify ? 'Spotify' : t('player.uploaded')}
+    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-background/90 backdrop-blur">
+      <div className="mx-auto flex max-w-7xl items-center gap-4 px-4 py-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+            {isSpotify ? <SpotifyLogo className="h-5 w-5" /> : <MusicNote className="h-5 w-5" />}
           </span>
-        </div>
-
-        {/* Seek bar */}
-        <div className="global-player__seek-wrap">
-          <span className="global-player__time">{formatTime(progress * duration)}</span>
-          <div className="global-player__seek" ref={seekRef} onClick={handleSeek}>
-            <div className="global-player__seek-track">
-              <div className="global-player__seek-fill" style={{ width: `${(progress || 0) * 100}%` }} />
-            </div>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-foreground">
+              {currentTrack.title || "Unknown"}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {currentTrack.artist || "Unknown"}
+            </p>
           </div>
-          <span className="global-player__time">{formatTime(duration)}</span>
         </div>
 
-        {/* Volume */}
-        <div className="global-player__volume">
-          <span className="global-player__volume-icon">{volume === 0 ? '🔇' : volume < 0.5 ? '🔉' : '🔊'}</span>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.05"
-            value={volume}
-            onChange={handleVolume}
-            className="global-player__volume-slider"
-            aria-label={t('player.volume')}
-          />
-        </div>
+        {isSpotify ? (
+          <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
+            <span className="rounded-full bg-[#1DB954]/15 px-2 py-0.5 font-medium text-[#1DB954]">
+              {t("player.spotify")}
+            </span>
+            {currentTrack.spotifyUrl && (
+              <a
+                href={currentTrack.spotifyUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="underline-offset-2 hover:underline"
+              >
+                Open
+              </a>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-1 items-center gap-3">
+              <button
+                onClick={togglePlay}
+                aria-label={isPlaying ? t("common.pause") : t("common.play")}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-transform hover:bg-primary/90 active:scale-95"
+              >
+                {isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              </button>
+              <span className="hidden w-10 text-right text-xs tabular-nums text-muted-foreground sm:block">
+                {formatTime(progress)}
+              </span>
+              <Slider
+                value={[duration ? (progress / duration) * 100 : 0]}
+                max={100}
+                step={0.5}
+                onValueChange={(v) => seek((v[0] / 100) * (duration || 0))}
+                className="flex-1"
+                aria-label="Seek"
+              />
+              <span className="hidden w-10 text-xs tabular-nums text-muted-foreground sm:block">
+                {formatTime(duration)}
+              </span>
+            </div>
+
+            <div className="hidden items-center gap-2 md:flex">
+              <SpeakerLow className="h-4 w-4 text-muted-foreground" />
+              <Slider
+                value={[volume * 100]}
+                max={100}
+                step={1}
+                onValueChange={(v) => setVolume(v[0] / 100)}
+                className="w-24"
+                aria-label="Volume"
+              />
+              <SpeakerHigh className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </>
+        )}
+
+        <button
+          onClick={stop}
+          aria-label="Close player"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground active:scale-95"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
+
+      {isSpotify && currentTrack.spotifyUri && (
+        <iframe
+          title="Spotify player"
+          src={`https://open.spotify.com/embed/track/${currentTrack.spotifyUri}`}
+          width="100%"
+          height="80"
+          frameBorder="0"
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          className="border-t border-border"
+          loading="lazy"
+        />
+      )}
     </div>
   );
 }

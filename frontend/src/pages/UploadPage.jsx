@@ -1,376 +1,321 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { musicAPI } from '../services/api';
-import Reveal from '../components/Reveal';
-import { usePlayer } from '../context/PlayerContext';
+import { useState, useCallback, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { motion } from "motion/react";
+import {
+  UploadSimple,
+  Sparkle,
+  SpotifyLogo,
+  Plus,
+  Spinner,
+  FileAudio,
+  MagnifyingGlass,
+  Link as LinkIcon,
+} from "@phosphor-icons/react";
+import { musicAPI } from "../services/api";
+import { useToast } from "../components/ui/toast";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Card } from "../components/ui/card";
 
-const STAGES = ['upload', 'analyze', 'ready'];
-
-export default function UploadPage() {
-  const navigate = useNavigate();
+function FileDropzone({ file, onFile, dragActive, setDragActive }) {
   const { t } = useTranslation();
-  const { play } = usePlayer();
+  const inputRef = useState(null);
+  return (
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragActive(true);
+      }}
+      onDragLeave={() => setDragActive(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragActive(false);
+        const f = e.dataTransfer.files?.[0];
+        if (f) onFile(f);
+      }}
+      className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
+        dragActive ? "border-primary bg-primary/5" : "border-border"
+      }`}
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept=".mp3,.wav,.flac,.ogg,audio/*"
+        className="hidden"
+        onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+      />
+      <FileAudio className="mb-3 h-8 w-8 text-muted-foreground" />
+      <p className="text-sm font-medium">{t("upload.dropFile")}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {t("upload.accepted")}
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="mt-4"
+        onClick={() => inputRef.current?.click()}
+      >
+        {t("upload.orBrowse")}
+      </Button>
+      {file && (
+        <p className="mt-4 max-w-full truncate rounded-md bg-secondary px-3 py-1.5 text-xs text-secondary-foreground">
+          {file.name}
+        </p>
+      )}
+    </div>
+  );
+}
 
-  const [tab, setTab] = useState('file');
-
-  /* ----- shared ----- */
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [uploadedTrack, setUploadedTrack] = useState(null);
-
-  /* ----- local upload ----- */
+function FileTab() {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { toast } = useToast();
   const [file, setFile] = useState(null);
-  const [title, setTitle] = useState('');
-  const [artist, setArtist] = useState('');
-  const [album, setAlbum] = useState('');
-  const [genre, setGenre] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiAvailable, setAiAvailable] = useState(null);
-  const [stage, setStage] = useState('idle'); // idle | uploading | analyzing | ready | error
-  const [analysisError, setAnalysisError] = useState(null);
-  const [isDrag, setIsDrag] = useState(false);
-  const fileInputRef = useRef(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [form, setForm] = useState({ title: "", artist: "", album: "", genre: "" });
+  const [uploading, setUploading] = useState(false);
+  const [autoTagging, setAutoTagging] = useState(false);
 
-  /* ----- spotify ----- */
-  const [spotifyOn, setSpotifyOn] = useState(false);
-  const [query, setQuery] = useState('');
-  const [spotifyResults, setSpotifyResults] = useState([]);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const handleFile = useCallback(
+    (f) => {
+      setFile(f);
+      setForm((f0) => ({ ...f0, title: f0.title || f.name.replace(/\.[^.]+$/, "") }));
+    },
+    []
+  );
+
+  const autoFill = async () => {
+    if (!file) return;
+    setAutoTagging(true);
+    try {
+      const fd = new FormData();
+      fd.append("filename", file.name);
+      const res = await musicAPI.autoTag(fd);
+      const d = res.data?.metadata || {};
+      setForm((f0) => ({
+        title: d.title || f0.title,
+        artist: d.artist || f0.artist,
+        album: d.album || f0.album,
+        genre: d.genre || f0.genre,
+      }));
+      toast({ title: t("upload.aiTag"), description: t("upload.autoFillRunning") });
+    } catch {
+      toast({ variant: "destructive", title: t("common.error") });
+    } finally {
+      setAutoTagging(false);
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("title", form.title);
+      fd.append("artist", form.artist);
+      fd.append("album", form.album);
+      fd.append("genre", form.genre);
+      const res = await musicAPI.upload(fd);
+      const id = res.data?.id;
+      toast({ title: t("upload.uploadSuccess") });
+      if (id) {
+        musicAPI.waitForAnalysis(id, { onUpdate: () => {} }).catch(() => {});
+      }
+      navigate("/");
+    } catch (err) {
+      if (err.response?.status === 409) {
+        toast({ variant: "destructive", title: t("upload.alreadyExists") });
+      } else {
+        toast({ variant: "destructive", title: t("common.error") });
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-5">
+      <FileDropzone file={file} onFile={handleFile} dragActive={dragActive} setDragActive={setDragActive} />
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="title">{t("upload.titleField")}</Label>
+          <Input id="title" value={form.title} onChange={set("title")} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="artist">{t("upload.artistField")}</Label>
+          <Input id="artist" value={form.artist} onChange={set("artist")} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="album">{t("upload.albumField")}</Label>
+          <Input id="album" value={form.album} onChange={set("album")} />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="genre">{t("upload.genreField")}</Label>
+          <Input id="genre" value={form.genre} onChange={set("genre")} />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" disabled={!file || uploading} className="gap-2">
+          {uploading ? <Spinner className="h-4 w-4 animate-spin" /> : <UploadSimple className="h-4 w-4" />}
+          {uploading ? t("upload.uploading") : t("upload.submit")}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={autoFill}
+          disabled={!file || autoTagging}
+          className="gap-2"
+        >
+          {autoTagging ? <Spinner className="h-4 w-4 animate-spin" /> : <Sparkle className="h-4 w-4" />}
+          {autoTagging ? t("upload.autoFillRunning") : t("upload.autoFill")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function SpotifyTab() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
-  const [addingId, setAddingId] = useState(null);
-  const [spotifyMsg, setSpotifyMsg] = useState('');
+  const [configured, setConfigured] = useState(true);
+  const [adding, setAdding] = useState(null);
 
   useEffect(() => {
-    musicAPI
-      .spotifyStatus()
-      .then((r) => setSpotifyOn(!!r.data.enabled))
-      .catch(() => setSpotifyOn(false));
-    musicAPI
-      .aiStatus()
-      .then((r) => setAiAvailable(r.data.available))
-      .catch(() => setAiAvailable(false));
+    musicAPI.spotifyStatus().catch(() => setConfigured(false));
   }, []);
 
-  /* ----- file selection ----- */
-  const applyFile = useCallback((selected) => {
-    if (!selected) return;
-    setFile(selected);
-    setError('');
-    if (!title) setTitle(selected.name.replace(/\.[^/.]+$/, ''));
-  }, [title]);
-
-  const onFileChange = (e) => applyFile(e.target.files[0]);
-  const onDrop = (e) => { e.preventDefault(); setIsDrag(false); applyFile(e.dataTransfer?.files?.[0]); };
-  const openPicker = () => fileInputRef.current?.click();
-  const clearFile = () => { setFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; };
-
-  /* ----- AI auto-fill ----- */
-  const handleAutoTag = async () => {
-    if (!file) { setError(t('upload.selectFileFirst')); return; }
-    setAiLoading(true);
-    setError('');
-    try {
-      const fd = new FormData();
-      fd.append('filename', file.name);
-      const res = await musicAPI.autoTag(fd);
-      if (res.data.success && res.data.metadata) {
-        const m = res.data.metadata;
-        setTitle(m.title || title);
-        setArtist(m.artist || '');
-        setAlbum(m.album || '');
-        setGenre(m.genre || '');
-        setSuccess(t('upload.metaFilled'));
-        setTimeout(() => setSuccess(''), 3000);
-      }
-    } catch {
-      setError(t('upload.aiTaggingFailed'));
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const resetForm = () => {
-    setFile(null);
-    setTitle(''); setArtist(''); setAlbum(''); setGenre('');
-    setError(''); setSuccess('');
-    setStage('idle'); setAnalysisError(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  /* ----- submit ----- */
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError(''); setSuccess('');
-    if (!file) { setError(t('upload.selectAudio')); return; }
-    setLoading(true);
-    setStage('uploading');
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('title', title);
-      if (artist) fd.append('artist', artist);
-      if (album) fd.append('album', album);
-      if (genre) fd.append('genre', genre);
-
-      const res = await musicAPI.upload(fd);
-      const newId = res.data.id;
-      setStage('analyzing');
-      setSuccess(`📂 "${res.data.title}" ${t('upload.uploaded')}`);
-
-      const final = await musicAPI.waitForAnalysis(newId, {
-        onUpdate: (data) => setStage(data.analysis_status === 'ready' ? 'ready' : 'analyzing'),
-      });
-
-      if (final.analysis_status === 'error') {
-        setStage('error');
-        setAnalysisError(final.analysis_error || t('errorBoundary.unknownError'));
-        setError(t('upload.analysisFailed', { detail: final.analysis_error || '' }));
-      } else {
-        setStage('ready');
-        setUploadedTrack(final);
-        setSuccess(`🎵 "${final.title}" ${t('upload.fullyAnalyzed')}`);
-        setTimeout(() => navigate(`/analyze/${newId}`), 1600);
-      }
-    } catch (err) {
-      setStage('error');
-      const status = err.response?.status;
-      if (status === 409) setError(`⚠️ ${err.response.data.detail}`);
-      else setError(err.response?.data?.detail || t('errorBoundary.unknownError'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const isBusy = loading || stage === 'analyzing' || stage === 'uploading';
-
-  /* ----- spotify ----- */
-  const handleSearch = async () => {
+  const search = async () => {
     if (!query.trim()) return;
     setSearching(true);
-    setSpotifyMsg('');
     try {
-      const res = await musicAPI.spotifySearch(query, 10);
-      setSpotifyResults(res.data || []);
+      const res = await musicAPI.spotifySearch(query, 12);
+      setResults(res.data || []);
     } catch {
-      setSpotifyMsg(t('upload.spotify.searchFailed'));
+      toast({ variant: "destructive", title: t("common.error") });
     } finally {
       setSearching(false);
     }
   };
 
-  const handleAddSpotify = async (track) => {
-    setAddingId(track.spotify_track_id);
-    setSpotifyMsg('');
+  const add = async (track) => {
+    setAdding(track.spotify_track_id);
     try {
       await musicAPI.addSpotify(track.spotify_track_id);
-      setSpotifyMsg(`✅ ${track.title} ${t('upload.spotify.added')}`);
+      toast({ title: t("common.add"), description: track.name });
+      setResults((r) => r.filter((x) => x.id !== track.id));
     } catch (err) {
-      const status = err.response?.status;
-      if (status === 409) setSpotifyMsg(`⚠️ ${err.response.data.detail}`);
-      else setSpotifyMsg(t('upload.spotify.addFailed'));
+      if (err.response?.status === 409) toast({ variant: "destructive", title: t("upload.alreadyExists") });
+      else toast({ variant: "destructive", title: t("common.error") });
     } finally {
-      setAddingId(null);
+      setAdding(null);
     }
   };
 
-  /* ----- stepper render ----- */
-  const stageIndex = { idle: -1, uploading: 0, analyzing: 1, ready: 2, error: 2 }[stage];
-  const renderStepper = (
-    <div className="stepper">
-      {STAGES.map((s, i) => {
-        const isDone = stage === 'ready' ? i <= 2 : i < stageIndex;
-        const isActive = stage !== 'ready' && i === stageIndex && stage !== 'error';
-        const isErr = stage === 'error' && i === 2;
-        const cls = `step ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''} ${isErr ? 'is-done' : ''}`;
-        return (
-          <div key={s} className={cls}>
-            <div className="step__dot">{isDone || isErr ? '✓' : i + 1}</div>
-            <div className="step__label">{t(`upload.stage${s.charAt(0).toUpperCase() + s.slice(1)}`)}</div>
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()}
+          placeholder={t("upload.spotifyPlaceholder")}
+        />
+        <Button onClick={search} disabled={searching} className="gap-2 shrink-0">
+          {searching ? <Spinner className="h-4 w-4 animate-spin" /> : <MagnifyingGlass className="h-4 w-4" />}
+          {t("common.search")}
+        </Button>
+      </div>
+
+      {!configured && (
+        <div className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+          {t("upload.connectSpotify")}
+        </div>
+      )}
+
+      {results.length === 0 && !searching && configured && (
+        <p className="text-center text-sm text-muted-foreground">{t("upload.noResults")}</p>
+      )}
+
+      <div className="space-y-2">
+        {results.map((track) => (
+          <div
+            key={track.id}
+            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
+          >
+            <img
+              src={track.image_url}
+              alt=""
+              className="h-12 w-12 rounded-md object-cover"
+              onError={(e) => (e.currentTarget.style.display = "none")}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{track.title}</p>
+              <p className="truncate text-xs text-muted-foreground">{track.artist}</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => add(track)}
+              disabled={adding === track.spotify_track_id}
+              className="gap-2"
+            >
+              {adding === track.spotify_track_id ? <Spinner className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              {t("upload.addTrack")}
+            </Button>
           </div>
-        );
-      })}
+        ))}
+      </div>
     </div>
   );
+}
+
+export default function UploadPage() {
+  const { t } = useTranslation();
+  const [params] = useSearchParams();
+  const initial = params.get("tab") === "spotify" ? "spotify" : "file";
 
   return (
-    <div className="stack-lg">
-      <Reveal className="page-head">
-        <div className="page-head__eyebrow">📂 {t('upload.title')}</div>
-        <h1 className="page-head__title">{t('upload.title')}</h1>
-        <p className="page-head__sub">{t('upload.subtitle')}</p>
-      </Reveal>
-
-      {spotifyOn && (
-        <Reveal>
-          <div className="tabs" style={{ marginBottom: 24 }}>
-            <button className={`tabs__btn ${tab === 'file' ? 'is-active' : ''}`} onClick={() => setTab('file')}>
-              📂 {t('upload.tabFile')}
-            </button>
-            <button className={`tabs__btn ${tab === 'spotify' ? 'is-active' : ''}`} onClick={() => setTab('spotify')}>
-              🟢 {t('upload.tabSpotify')}
-            </button>
-          </div>
-        </Reveal>
-      )}
-
-      {tab === 'file' ? (
-        <Reveal className="panel">
-          {error && <div className="alert alert--error">{error}</div>}
-          {success && <div className="alert alert--success">{success}</div>}
-
-          {stage === 'idle' || stage === 'error' ? (
-            <form onSubmit={handleSubmit}>
-              <div
-                className={`dropzone ${isDrag ? 'is-drag' : ''}`}
-                onClick={openPicker}
-                onDrop={onDrop}
-                onDragOver={(e) => { e.preventDefault(); setIsDrag(true); }}
-                onDragLeave={() => setIsDrag(false)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openPicker(); } }}
-              >
-                <div className="dropzone__icon" aria-hidden="true">🎵</div>
-                <div className="dropzone__title">
-                  {file ? `${t('upload.selectedFile')}: ${file.name}` : t('upload.dropInactive')}
-                </div>
-                <div className="dropzone__hint">{t('upload.dropHint', { formats: t('upload.formats') })}</div>
-
-                <input
-                  ref={fileInputRef}
-                  className="sr-only"
-                  type="file"
-                  accept=".mp3,.wav,.flac,.ogg"
-                  onChange={onFileChange}
-                />
-
-                {file && (
-                  <div className="chip" onClick={(e) => e.stopPropagation()}>
-                    <span className="chip__name">{file.name}</span>
-                    <button type="button" className="chip__remove" onClick={clearFile} aria-label={t('upload.removeFile')}>✕</button>
-                  </div>
-                )}
-              </div>
-
-              <div className="field" style={{ marginTop: 22 }}>
-                <label className="field__label" htmlFor="up-title">
-                  {t('upload.titleLabel')}
-                  {aiAvailable === true && <span className="pill pill--accent">✨ {t('upload.aiReady')}</span>}
-                  {aiAvailable === false && <span className="pill">🤖 {t('upload.aiNotConfigured')}</span>}
-                </label>
-                <div className="flex gap-sm" style={{ alignItems: 'center' }}>
-                  <input
-                    id="up-title"
-                    className="input flex-1"
-                    type="text"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder={t('upload.placeholderTitle')}
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    onClick={handleAutoTag}
-                    disabled={aiLoading || !file || aiAvailable === false}
-                    title={aiAvailable === false ? t('upload.aiServiceMissing') : t('upload.aiTooltip')}
-                  >
-                    {aiLoading ? <><span className="spinner" /> {t('upload.autoFillLoading')}</> : `✨ ${t('upload.autoFill')}`}
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid--3">
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label className="field__label" htmlFor="up-artist">{t('upload.artistLabel')}</label>
-                  <input id="up-artist" className="input" value={artist} onChange={(e) => setArtist(e.target.value)} placeholder={t('upload.placeholderArtist')} />
-                </div>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label className="field__label" htmlFor="up-album">{t('upload.albumLabel')}</label>
-                  <input id="up-album" className="input" value={album} onChange={(e) => setAlbum(e.target.value)} placeholder={t('upload.placeholderAlbum')} />
-                </div>
-                <div className="field" style={{ marginBottom: 0 }}>
-                  <label className="field__label" htmlFor="up-genre">{t('upload.genreLabel')}</label>
-                  <input id="up-genre" className="input" value={genre} onChange={(e) => setGenre(e.target.value)} placeholder={t('upload.placeholderGenre')} />
-                </div>
-              </div>
-
-              <div className="flex gap-sm mt-lg">
-                <button type="submit" className="btn btn--primary btn--lg" disabled={isBusy || !file}>
-                  {loading ? <><span className="spinner" /> {t('upload.submitting')}</> : `📂 ${t('upload.title')}`}
-                </button>
-                {stage === 'error' && (
-                  <button type="button" className="btn btn--ghost" onClick={resetForm}>{t('common.cancel')}</button>
-                )}
-              </div>
-            </form>
-          ) : (
-            <>
-              {renderStepper()}
-              <div className="text-center text-sm text-muted">
-                {stage === 'analyzing' && `⏳ ${t('upload.analyzing')}`}
-                {stage === 'ready' && `🎵 ${t('upload.complete')}`}
-                {stage === 'error' && analysisError && (
-                  <span className="text-danger">⚠️ {t('upload.analysisFailed', { detail: analysisError })}</span>
-                )}
-              </div>
-              {stage === 'ready' && (
-                <div className="text-center mt-md flex flex-col items-center gap-md">
-                  <button className="btn btn--primary" onClick={() => navigate('/')}>{t('common.viewLibrary')}</button>
-                  {uploadedTrack && (
-                    <button className="btn btn--primary btn--sm" onClick={() => play(uploadedTrack)}>
-                      ▶ {t('player.play')}
-                    </button>
-                  )}
-                </div>
-              )}
-              {stage === 'error' && (
-                <div className="text-center mt-md">
-                  <button className="btn btn--ghost" onClick={resetForm}>{t('common.cancel')}</button>
-                </div>
-              )}
-            </>
-          )}
-        </Reveal>
-      ) : (
-        <Reveal className="panel">
-          {spotifyMsg && <div className="alert alert--info">{spotifyMsg}</div>}
-          <div className="field__label">🔎 {t('upload.spotify.title')}</div>
-          <div className="flex gap-sm mb-md">
-            <input
-              className="input flex-1"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder={t('upload.spotify.searchPlaceholder')}
-            />
-            <button className="btn btn--primary" onClick={handleSearch} disabled={searching}>
-              {searching ? <><span className="spinner" /> {t('upload.spotify.searching')}</> : t('upload.spotify.searchButton')}
-            </button>
-          </div>
-
-          {spotifyResults.length === 0 ? (
-            <p className="text-muted text-sm">{query ? t('upload.spotify.noResults') : t('upload.spotify.emptyQuery')}</p>
-          ) : (
-            <div className="stack">
-              {spotifyResults.map((tr) => (
-                <div key={tr.spotify_track_id} className="flex items-center gap-md" style={{ padding: '12px 0', borderBottom: '1px solid var(--border)' }}>
-                  {tr.image_url && <img src={tr.image_url} alt="" style={{ width: 48, height: 48, borderRadius: 10, objectFit: 'cover' }} />}
-                  <div className="flex-1" style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 600 }}>{tr.title}</div>
-                    <div className="text-sm text-muted">{tr.artist}{tr.album ? ` · ${tr.album}` : ''}</div>
-                  </div>
-                  <button className="btn btn--primary btn--sm" disabled={addingId === tr.spotify_track_id} onClick={() => handleAddSpotify(tr)}>
-                    {addingId === tr.spotify_track_id ? <><span className="spinner" /> {t('upload.spotify.adding')}</> : `＋ ${t('upload.spotify.add')}`}
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <p className="text-xs text-muted mt-md">ℹ️ {t('upload.spotify.note')}</p>
-        </Reveal>
-      )}
+    <div className="mx-auto max-w-3xl">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <h1 className="mb-1 text-2xl font-semibold tracking-tight">{t("upload.title")}</h1>
+        <Tabs defaultValue={initial} className="mt-6">
+          <TabsList>
+            <TabsTrigger value="file" className="gap-2">
+              <UploadSimple className="h-4 w-4" />
+              {t("upload.fromFile")}
+            </TabsTrigger>
+            <TabsTrigger value="spotify" className="gap-2">
+              <SpotifyLogo className="h-4 w-4" />
+              {t("upload.fromSpotify")}
+            </TabsTrigger>
+          </TabsList>
+          <Card className="mt-4 p-6">
+            <TabsContent value="file">
+              <FileTab />
+            </TabsContent>
+            <TabsContent value="spotify">
+              <SpotifyTab />
+            </TabsContent>
+          </Card>
+        </Tabs>
+      </motion.div>
     </div>
   );
 }

@@ -1,239 +1,287 @@
-import React, { useState, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { useAuth } from '../utils/AuthContext';
-import { musicAPI, recommendAPI } from '../services/api';
-import Reveal from '../components/Reveal';
-import { usePlayer } from '../context/PlayerContext';
+import { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { motion } from "motion/react";
+import {
+  Sparkle,
+  Play,
+  SpotifyLogo,
+  Spinner,
+  Waveform,
+  ArrowCounterClockwise,
+  ChartBar,
+} from "@phosphor-icons/react";
+import { musicAPI, recommendAPI } from "../services/api";
+import { useAuth } from "../utils/AuthContext";
+import { usePlayer } from "../context/PlayerContext";
+import { useToast } from "../components/ui/toast";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Skeleton } from "../components/ui/skeleton";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "../components/ui/select";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "../components/ui/table";
+
+const ALGOS = [
+  { value: "1", label: "Cosine similarity" },
+  { value: "2", label: "K-Means clusters" },
+  { value: "3", label: "Random Forest" },
+];
 
 export default function RecommendationsPage() {
-  const { user } = useAuth();
-  const location = useLocation();
   const { t } = useTranslation();
-  const { play } = usePlayer();
+  const { user } = useAuth();
+  const { playTrack } = usePlayer();
+  const { toast } = useToast();
 
   const [tracks, setTracks] = useState([]);
-  const [selected, setSelected] = useState(location.state?.musicId || '');
-  const [algorithm, setAlgorithm] = useState(3);
+  const [sourceId, setSourceId] = useState("");
+  const [algorithm, setAlgorithm] = useState("1");
   const [limit, setLimit] = useState(10);
-  const [abTest, setAbTest] = useState(false);
   const [recs, setRecs] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [loadingTracks, setLoadingTracks] = useState(true);
-  const [error, setError] = useState('');
-  const [training, setTraining] = useState(false);
-  const [trainResult, setTrainResult] = useState('');
+  const [noResults, setNoResults] = useState(false);
+
   const [abStats, setAbStats] = useState(null);
-  const [loadingStats, setLoadingStats] = useState(false);
+  const [training, setTraining] = useState(false);
 
-  useEffect(() => {
-    if (user) {
-      musicAPI.getUserMusic(user.id)
-        .then((res) => setTracks(res.data))
-        .catch(() => {})
-        .finally(() => setLoadingTracks(false));
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (selected && !loadingTracks) getRecommendations();
-    // eslint-disable-next-line
-  }, [loadingTracks]);
-
-  const getRecommendations = async () => {
-    if (!selected) { setError(t('recommend.selectFirst')); return; }
-    setError(''); setLoading(true); setRecs([]);
+  const loadTracks = useCallback(async () => {
+    if (!user?.id) return;
     try {
-      const res = await recommendAPI.get(selected, limit, algorithm, abTest);
-      setRecs(res.data);
-      if (res.data.length === 0) setError(t('recommend.noRecsError'));
+      const res = await musicAPI.getUserMusic(user.id);
+      const list = res.data || [];
+      setTracks(list);
+      if (!sourceId && list.length) setSourceId(String(list[0].id));
     } catch {
-      setError(t('recommend.getRecsError'));
+      /* ignore */
+    }
+  }, [user?.id, sourceId]);
+
+  const loadAb = useCallback(async () => {
+    try {
+      const res = await recommendAPI.getABStats();
+      setAbStats(res.data);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTracks();
+    loadAb();
+  }, [loadTracks, loadAb]);
+
+  const fetchRecs = async () => {
+    if (!sourceId) return;
+    setLoading(true);
+    setNoResults(false);
+    try {
+      const res = await recommendAPI.get(Number(sourceId), limit, Number(algorithm), false);
+      const list = res.data?.recommendations || res.data || [];
+      setRecs(list);
+      setNoResults(list.length === 0);
+      try {
+        await recommendAPI.recordEvent("impression", Number(algorithm), Number(sourceId));
+      } catch {
+        /* ignore */
+      }
+      loadAb();
+    } catch {
+      toast({ variant: "destructive", title: t("common.error") });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClickRec = (rec) => {
-    recommendAPI.recordEvent('click', rec.algorithm, rec.source_music_id, rec.recommended_music_id).catch(() => {});
-  };
-
-  const handleTrain = async () => {
-    setTraining(true); setTrainResult('');
+  const train = async () => {
+    setTraining(true);
     try {
-      const res = await recommendAPI.train(8);
-      setTrainResult(`${t('admin.libraryTracks')}: ${res.data.total_tracks} · ${res.data.n_clusters} ${t('recommend.algorithm')} · ${res.data.inertia?.toFixed(1)}`);
+      await recommendAPI.train(8);
+      toast({ title: t("recommend.trained") });
+      loadAb();
     } catch {
-      setTrainResult(t('recommend.trainingFailed'));
+      toast({ variant: "destructive", title: t("common.error") });
     } finally {
       setTraining(false);
     }
   };
 
-  const loadStats = async () => {
-    setLoadingStats(true);
+  const onPlay = (rec) => {
+    const m = rec.music || rec;
+    playTrack(m);
     try {
-      const res = await recommendAPI.getABStats();
-      setAbStats(res.data);
-    } catch { /* ignore */ } finally { setLoadingStats(false); }
+      recommendAPI.recordEvent("click", Number(algorithm), Number(sourceId), m.id);
+    } catch {
+      /* ignore */
+    }
   };
 
-  const ALGOS = t('recommend.algorithms', { returnObjects: true });
+  const statsRows = abStats?.stats || abStats?.algorithms || [];
 
   return (
-    <div className="stack-lg">
-      <Reveal className="page-head">
-        <div className="page-head__eyebrow">✨ {t('recommend.title')}</div>
-        <h1 className="page-head__title">{t('recommend.title')}</h1>
-        <p className="page-head__sub">{t('recommend.subtitle')}</p>
-      </Reveal>
-
-      {/* Controls */}
-      <Reveal className="panel">
-        <div className="field">
-          <label className="field__label" htmlFor="rec-source">{t('recommend.sourceTrack')}</label>
-          {loadingTracks ? (
-            <div className="text-sm text-muted">{t('recommend.loadingTracks')}</div>
-          ) : (
-            <select id="rec-source" className="select" value={selected} onChange={(e) => setSelected(e.target.value)}>
-              <option value="">{t('recommend.selectTrack')}</option>
-              {tracks.map((tr) => (
-                <option key={tr.id} value={tr.id}>{tr.title}{tr.artist ? ` — ${tr.artist}` : ''}</option>
-              ))}
-            </select>
-          )}
-        </div>
-
-        <div className="flex items-center gap-md flex-wrap" style={{ marginTop: 4 }}>
-          <div>
-            <div className="field__label">{t('recommend.algorithm')}</div>
-            <div className="chip-row">
-              {['3', '1', '2'].map((a) => (
-                <button
-                  key={a}
-                  className={`algo-chip ${algorithm === Number(a) && !abTest ? 'is-active' : ''}`}
-                  onClick={() => { setAbTest(false); setAlgorithm(Number(a)); }}
-                  disabled={abTest}
-                >
-                  {ALGOS[a]}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label className="field__label" htmlFor="rec-limit">{t('recommend.limit')}</label>
-            <input id="rec-limit" className="input" type="number" min={1} max={50} style={{ width: 90 }} value={limit} onChange={(e) => setLimit(Number(e.target.value))} />
-          </div>
-
-          <button className="btn btn--primary btn--lg" style={{ alignSelf: 'flex-end' }} onClick={getRecommendations} disabled={loading || !selected}>
-            {loading ? <><span className="spinner" /> {t('recommend.searching')}</> : `🎯 ${t('recommend.findSimilar')}`}
-          </button>
-        </div>
-
-        <label className="flex items-center gap-sm" style={{ marginTop: 18, cursor: 'pointer' }}>
-          <input type="checkbox" checked={abTest} onChange={(e) => setAbTest(e.target.checked)} />
-          <span className="text-sm">{t('recommend.abTestMode')}</span>
-          {abTest && <span className="text-xs text-muted">· {t('recommend.abRandomNote')}</span>}
-        </label>
-      </Reveal>
-
-      <div className="flex items-center gap-sm">
-        <button className="btn btn--ghost btn--sm" onClick={handleTrain} disabled={training}>
-          {training ? <><span className="spinner" /> {t('recommend.training')}</> : `⚙️ ${t('recommend.trainModel')}`}
-        </button>
-        {trainResult && <span className="text-sm text-muted">{trainResult}</span>}
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight">{t("recommend.title")}</h1>
       </div>
 
-      {error && <div className="alert alert--error">{error}</div>}
-
-      {/* Results */}
-      {recs.length > 0 && (
-        <Reveal>
-          <div className="meta-line mb-md">
-            <b>{t('recommend.recCount', { count: recs.length })}</b>
-            <span>·</span>
-            <span>{t('recommend.perAlgorithm', { name: ALGOS[recs[0]?.algorithm] || '' })}</span>
+      <Card className="p-6">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="space-y-2 md:col-span-2">
+            <Label>{t("recommend.selectTrack")}</Label>
+            <Select value={sourceId} onValueChange={setSourceId}>
+              <SelectTrigger>
+                <SelectValue placeholder={t("recommend.selectTrack")} />
+              </SelectTrigger>
+              <SelectContent>
+                {tracks.map((tr) => (
+                  <SelectItem key={tr.id} value={String(tr.id)}>
+                    {tr.title} — {tr.artist}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="rec-list">
-            {recs.map((rec, i) => (
-              <Reveal key={rec.id || i} delay={Math.min(i, 6)} className="rec-item" onClick={() => handleClickRec(rec)} role="button" tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClickRec(rec); }}>
-                <div className="rec-item__art" aria-hidden="true">🎵</div>
-                <div className="rec-item__info">
-                  <div className="flex items-center gap-sm">
-                    <div className="rec-item__title">{rec.recommended_music?.title || t('recommend.track', { id: rec.recommended_music_id })}</div>
-                    <button className="btn-icon" onClick={() => play(rec)} aria-label={t('player.play')}>▶</button>
-                  </div>
-                  <div className="rec-item__sub">
-                    {rec.recommended_music?.artist}
-                    {rec.recommended_music?.genre && <span className="tag">{rec.recommended_music.genre}</span>}
-                    {rec.recommended_music?.source === 'spotify' && <span className="pill pill--success">Spotify</span>}
-                  </div>
-                  {rec.recommended_music?.source === 'spotify' && rec.recommended_music?.external_id && (
-                    <iframe className="spotify-embed" src={`https://open.spotify.com/embed/track/${rec.recommended_music.external_id}?utm_source=generator`} height="80" title={t('analyze.previewLabel')} allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" />
-                  )}
-                </div>
-                <div className="ring" style={{ '--p': Math.round((rec.similarity_score || 0) * 100) }}>
-                  {Math.round((rec.similarity_score || 0) * 100)}%
-                </div>
-              </Reveal>
-            ))}
+          <div className="space-y-2">
+            <Label>{t("recommend.algorithm")}</Label>
+            <Select value={algorithm} onValueChange={setAlgorithm}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ALGOS.map((a) => (
+                  <SelectItem key={a.value} value={a.value}>
+                    {a.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-        </Reveal>
-      )}
-
-      {!loading && recs.length === 0 && !error && (
-        <Reveal className="empty">
-          <div className="empty__icon">🎯</div>
-          <div className="empty__title">{t('recommend.noRecsYet')}</div>
-          <p className="empty__text">{t('recommend.recommendClickNote')}</p>
-        </Reveal>
-      )}
-
-      {/* A/B stats */}
-      <Reveal className="panel">
-        <div className="flex items-center justify-between mb-md">
-          <h3 style={{ margin: 0 }}>📊 {t('recommend.abResults')}</h3>
-          <button className="btn btn--ghost btn--sm" onClick={loadStats} disabled={loadingStats}>
-            {loadingStats ? t('recommend.loading') : t('recommend.refresh')}
-          </button>
+          <div className="space-y-2">
+            <Label htmlFor="limit">{t("recommend.limit")}</Label>
+            <Input
+              id="limit"
+              type="number"
+              min={1}
+              max={50}
+              value={limit}
+              onChange={(e) => setLimit(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </div>
         </div>
+        <Button onClick={fetchRecs} disabled={loading || !sourceId} className="mt-4 gap-2">
+          {loading ? <Spinner className="h-4 w-4 animate-spin" /> : <Sparkle className="h-4 w-4" />}
+          {t("recommend.get")}
+        </Button>
+      </Card>
 
-        {abStats ? (
-          <div>
-            <p className="text-sm text-muted mb-md">{t('recommend.totalEvents', { count: abStats.total_events })}</p>
-            {abStats.rows?.length === 0 ? (
-              <p className="text-sm text-muted">{t('recommend.noData')}</p>
-            ) : (
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>{t('admin.colAlgorithm')}</th>
-                    <th>{t('admin.colImpressions')}</th>
-                    <th>{t('admin.colClicks')}</th>
-                    <th>{t('admin.colPlays')}</th>
-                    <th>{t('admin.colCtr')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {abStats.rows.map((row) => (
-                    <tr key={row.algorithm}>
-                      <td><span className="tag">{ALGOS[row.algorithm] || t('recommend.track', { id: row.algorithm })}</span></td>
-                      <td>{row.impressions}</td>
-                      <td>{row.clicks}</td>
-                      <td>{row.plays}</td>
-                      <td className={row.ctr > 0 ? 'text-success' : ''}>{row.ctr}%</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        ) : (
-          !loadingStats && <p className="text-sm text-muted">{t('recommend.clickRefresh')}</p>
-        )}
-      </Reveal>
+      {loading && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      {!loading && noResults && (
+        <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center text-sm text-muted-foreground">
+          {t("recommend.noResults")}
+        </div>
+      )}
+
+      {!loading && recs.length > 0 && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {recs.map((rec, i) => {
+            const m = rec.music || rec;
+            const sim = rec.similarity ?? rec.similarity_score ?? 0;
+            const isSpotify = Boolean(m.spotify_track_id || m.spotifyTrackId);
+            return (
+              <motion.div
+                key={m.id || i}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.03 }}
+              >
+                <Card className="flex h-full flex-col p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{m.title}</p>
+                      <p className="truncate text-sm text-muted-foreground">{m.artist}</p>
+                      {m.genre && (
+                        <p className="mt-1 truncate text-xs text-muted-foreground">{m.genre}</p>
+                      )}
+                    </div>
+                    <span className="shrink-0 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium tabular-nums text-primary">
+                      {Math.round(sim * 100)}%
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
+                    <Button variant="ghost" size="sm" className="gap-2" onClick={() => onPlay(rec)}>
+                      {isSpotify ? <SpotifyLogo className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                      {t("common.play")}
+                    </Button>
+                  </div>
+                </Card>
+              </motion.div>
+            );
+          })}
+        </div>
+      )}
+
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ChartBar className="h-4 w-4" />
+            {t("recommend.abTitle")}
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={train} disabled={training} className="gap-2">
+            {training ? <Spinner className="h-4 w-4 animate-spin" /> : <ArrowCounterClockwise className="h-4 w-4" />}
+            {t("recommend.train")}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {statsRows.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("admin.noData")}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("recommend.algorithmCol")}</TableHead>
+                  <TableHead>{t("recommend.impressions")}</TableHead>
+                  <TableHead>{t("recommend.clicks")}</TableHead>
+                  <TableHead>{t("recommend.plays")}</TableHead>
+                  <TableHead>{t("recommend.ctr")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {statsRows.map((row) => (
+                  <TableRow key={row.algorithm}>
+                    <TableCell className="font-medium">{row.algorithm}</TableCell>
+                    <TableCell className="tabular-nums">{row.impressions ?? row.impressions_count ?? 0}</TableCell>
+                    <TableCell className="tabular-nums">{row.clicks ?? 0}</TableCell>
+                    <TableCell className="tabular-nums">{row.plays ?? 0}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {row.ctr != null ? `${Math.round(row.ctr * 100)}%` : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

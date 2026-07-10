@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { authAPI } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -6,43 +6,58 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  useEffect(() => {
-    authAPI
-      .getMe()
-      .then((res) => setUser(res.data))
-      .catch(() => setUser(null))
-      .finally(() => setLoading(false));
+  const getMe = useCallback(async () => {
+    try {
+      const res = await authAPI.getMe();
+      setUser(res.data);
+      setIsAuthenticated(true);
+      return res.data;
+    } catch {
+      setUser(null);
+      setIsAuthenticated(false);
+      return null;
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const login = async (username, password) => {
+  useEffect(() => {
+    getMe();
+  }, [getMe]);
+
+  const login = useCallback(async (username, password) => {
     await authAPI.login(username, password);
-    const meRes = await authAPI.getMe();
-    setUser(meRes.data);
-    return meRes.data;
-  };
+    const data = await getMe();
+    return data;
+  }, [getMe]);
 
-  const register = async (username, email, password) => {
-    await authAPI.register({ username, email, password });
-    const meRes = await authAPI.getMe();
-    setUser(meRes.data);
-    return meRes.data;
-  };
+  const register = useCallback(async (data) => {
+    await authAPI.register(data);
+    await login(data.username, data.password);
+  }, [login]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await authAPI.logout();
-    } catch {
-      // cookie deletion is best-effort
+    } finally {
+      setUser(null);
+      setIsAuthenticated(false);
     }
-    setUser(null);
+  }, []);
+
+  const value = {
+    user,
+    loading,
+    isAuthenticated,
+    login,
+    register,
+    logout,
+    getMe,
   };
 
-  return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

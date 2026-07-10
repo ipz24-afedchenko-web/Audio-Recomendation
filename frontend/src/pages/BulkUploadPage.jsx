@@ -1,579 +1,254 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
-import { musicAPI } from '../services/api';
-import strings from '../strings';
+import { useState, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+import { motion } from "motion/react";
+import {
+  Files,
+  Sparkle,
+  UploadSimple,
+  Trash,
+  Spinner,
+  CheckCircle,
+  Warning,
+} from "@phosphor-icons/react";
+import { musicAPI } from "../services/api";
+import { useToast } from "../components/ui/toast";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Card } from "../components/ui/card";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "../components/ui/table";
+import { Badge } from "../components/ui/badge";
 
-/* ── Status constants ── */
 const STATUS = {
-  IDLE: 'idle',
-  TAGGING: 'tagging',
-  TAGGED: 'tagged',
-  UPLOADING: 'uploading',
-  // Set after the server accepted the file but before its background
-  // analysis finishes.  The row stays in this state until the polling
-  // helper resolves the track's final status.
-  ANALYZING: 'analyzing',
-  DONE: 'done',
-  // Permanent failure (validation / network / dedup / analysis error).
-  ERROR: 'error',
+  pending: { variant: "muted", label: "bulk.pending", icon: null },
+  processing: { variant: "warning", label: "bulk.processing", icon: Spinner },
+  ready: { variant: "success", label: "bulk.ready", icon: CheckCircle },
+  error: { variant: "destructive", label: "bulk.error", icon: Warning },
 };
 
-const ALLOWED = new Set(['.mp3', '.wav', '.flac', '.ogg']);
+let uid = 0;
 
-function ext(name) {
-  return name.slice(name.lastIndexOf('.')).toLowerCase();
-}
-
-function uid() {
-  return Math.random().toString(36).slice(2);
-}
-
-function makeTrack(file) {
-  return {
-    id: uid(),
-    file,
-    title: file.name.replace(/\.[^/.]+$/, ''),
-    artist: '',
-    album: '',
-    genre: '',
-    status: STATUS.IDLE,
-    error: null,
-    uploadedId: null,
-  };
-}
-
-/* ── Status badge ── */
-function StatusBadge({ status, error }) {
-  useTranslation();
-  const map = {
-    [STATUS.IDLE]:     { label: strings.bulk.status.idle,     color: '#606070', bg: 'rgba(96,96,112,0.12)' },
-    [STATUS.TAGGING]:  { label: strings.bulk.status.tagging,  color: '#f39c12', bg: 'rgba(243,156,18,0.12)' },
-    [STATUS.TAGGED]:   { label: strings.bulk.status.tagged,   color: '#2ecc71', bg: 'rgba(46,204,113,0.12)' },
-    [STATUS.UPLOADING]:{ label: strings.bulk.status.uploading,color: '#3498db', bg: 'rgba(52,152,219,0.12)' },
-    [STATUS.ANALYZING]:{ label: strings.bulk.status.analyzing,color: '#9b59b6', bg: 'rgba(155,89,182,0.12)' },
-    [STATUS.DONE]:     { label: strings.bulk.status.done,     color: '#2ecc71', bg: 'rgba(46,204,113,0.12)' },
-    [STATUS.ERROR]:    { label: strings.bulk.status.error,    color: '#e74c3c', bg: 'rgba(231,76,60,0.12)'  },
-  };
-  const s = map[status] || map[STATUS.IDLE];
-  return (
-    <span title={error || ''} className="pill flex-shrink-0"
-      style={{ background: s.bg, color: s.color }}>
-      {status === STATUS.TAGGING || status === STATUS.UPLOADING || status === STATUS.ANALYZING
-        ? <><SmallSpinner color={s.color} /> {s.label}</>
-        : s.label}
-    </span>
-  );
-}
-
-function SmallSpinner({ color = '#6c5ce7' }) {
-  return <span className="small-spinner" style={{ borderTopColor: color }} />;
-}
-
-/* ── Progress bar ── */
-function ProgressBar({ done, total }) {
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  return (
-    <div className="flex-center gap-sm">
-      <div className="progress-track">
-        <div className="progress-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs text-muted progress-label">
-        {done}/{total}
-      </span>
-    </div>
-  );
-}
-
-/* ── Inline editable field ── */
-function InlineField({ value, placeholder, onChange, disabled }) {
-  return (
-    <input
-      className="form-input form-input-sm"
-      value={value}
-      placeholder={placeholder}
-      onChange={e => onChange(e.target.value)}
-      disabled={disabled}
-    />
-  );
-}
-
-/* ── Track row ── */
-function TrackRow({ track, onUpdate, onRemove, onTagOne, aiAvailable }) {
-  useTranslation();
-  const busy =
-    track.status === STATUS.TAGGING ||
-    track.status === STATUS.UPLOADING ||
-    track.status === STATUS.ANALYZING;
-  const done = track.status === STATUS.DONE;
-
-  return (
-    <div className="track-row" style={{
-      background: done ? 'rgba(46,204,113,0.04)' : 'var(--bg-input)',
-      borderColor: done ? 'rgba(46,204,113,0.2)' : 'var(--border)',
-    }}>
-      {/* Title */}
-      <InlineField
-        value={track.title}
-        placeholder={strings.bulk.placeholder.title}
-        onChange={v => onUpdate('title', v)}
-        disabled={busy || done}
-      />
-      {/* Artist */}
-      <InlineField
-        value={track.artist}
-        placeholder={strings.bulk.placeholder.artist}
-        onChange={v => onUpdate('artist', v)}
-        disabled={busy || done}
-      />
-      {/* Album */}
-      <InlineField
-        value={track.album}
-        placeholder={strings.bulk.placeholder.album}
-        onChange={v => onUpdate('album', v)}
-        disabled={busy || done}
-      />
-      {/* Genre */}
-      <InlineField
-        value={track.genre}
-        placeholder={strings.bulk.placeholder.genre}
-        onChange={v => onUpdate('genre', v)}
-        disabled={busy || done}
-      />
-
-      {/* Status badge */}
-      <StatusBadge status={track.status} error={track.error} />
-
-      {/* Actions */}
-      <div className="flex gap-xs flex-shrink-0">
-        {!done && (
-          <button
-            className="btn btn-secondary btn-sm"
-            onClick={onTagOne}
-            disabled={busy || !aiAvailable}
-            title={aiAvailable ? strings.bulk.tooltip.aiAutoFill : strings.bulk.tooltip.aiUnavailable}
-          >
-            {track.status === STATUS.TAGGING
-              ? <SmallSpinner />
-              : '✨'}
-          </button>
-        )}
-        {!done && (
-          <button
-            className="btn btn-danger btn-sm"
-            onClick={onRemove}
-            disabled={busy}
-            title={strings.bulk.tooltip.remove}
-          >
-            ✕
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ── Column headers ── */
-function TrackHeaders() {
-  useTranslation();
-  const cols = strings.bulk.columnHeaders;
-  return (
-    <div className="track-headers">
-      {cols.map(c => (
-        <span key={c} className="text-xs text-muted">{c}</span>
-      ))}
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════
-   Main Page Component
-   ════════════════════════════════════════════ */
 export default function BulkUploadPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
-  useTranslation();
-  const fileInputRef = useRef(null);
+  const { toast } = useToast();
+  const [items, setItems] = useState([]);
+  const [dragActive, setDragActive] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const inputRef = useRef(null);
 
-  const [tracks, setTracks] = useState([]);
-  const [dragging, setDragging] = useState(false);
-  const [aiAvailable, setAiAvailable] = useState(null);
-  const [globalMsg, setGlobalMsg] = useState(null); // {type, text}
-  const [phase, setPhase] = useState('idle'); // idle | tagging | uploading | done
-
-  /* Check AI status once */
-  React.useEffect(() => {
-    musicAPI.aiStatus()
-      .then(r => setAiAvailable(r.data.available))
-      .catch(() => setAiAvailable(false));
+  const addFiles = useCallback((fileList) => {
+    const arr = Array.from(fileList || []);
+    const next = arr.map((f) => ({
+      id: ++uid,
+      file: f,
+      title: f.name.replace(/\.[^.]+$/, ""),
+      artist: "",
+      album: "",
+      genre: "",
+      status: "pending",
+    }));
+    setItems((prev) => [...prev, ...next]);
   }, []);
 
-  /* ── File ingestion ── */
-  const addFiles = useCallback((files) => {
-    const valid = Array.from(files).filter(f => ALLOWED.has(ext(f.name)));
-    if (!valid.length) return;
-    setTracks(prev => {
-      const existingNames = new Set(prev.map(t => t.file.name));
-      const fresh = valid.filter(f => !existingNames.has(f.name)).map(makeTrack);
-      return [...prev, ...fresh];
-    });
-  }, []);
+  const update = (id, patch) =>
+    setItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
 
-  const onFileInput = e => { addFiles(e.target.files); e.target.value = ''; };
+  const remove = (id) => setItems((prev) => prev.filter((x) => x.id !== id));
 
-  /* ── Drag & drop ── */
-  const onDragOver = e => { e.preventDefault(); setDragging(true); };
-  const onDragLeave = () => setDragging(false);
-  const onDrop = e => {
-    e.preventDefault(); setDragging(false);
-    addFiles(e.dataTransfer.files);
+  const autoTagAll = async () => {
+    setBusy(true);
+    for (const it of items) {
+      if (it.status !== "pending") continue;
+      update(it.id, { status: "processing" });
+      try {
+        const fd = new FormData();
+        fd.append("file", it.file);
+        const res = await musicAPI.autoTag(fd);
+        const d = res.data || {};
+        update(it.id, {
+          title: d.title || it.title,
+          artist: d.artist || it.artist,
+          album: d.album || it.album,
+          genre: d.genre || it.genre,
+          status: "pending",
+        });
+      } catch {
+        update(it.id, { status: "error" });
+      }
+    }
+    setBusy(false);
+    toast({ title: t("bulk.autoTagAll") });
   };
 
-  /* ── Update a single track field ── */
-  const updateTrack = (id, field, value) => {
-    setTracks(prev => prev.map(t => t.id === id ? { ...t, [field]: value } : t));
-  };
-
-  /* ── Set track status (with optional metadata merge) ── */
-  const patchTrack = (id, patch) => {
-    setTracks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
-  };
-
-  /* ── Auto-tag a single track ── */
-  const tagOne = async (id) => {
-    const track = tracks.find(t => t.id === id);
-    if (!track) return;
-
-    patchTrack(id, { status: STATUS.TAGGING, error: null });
-
-    try {
-      const fd = new FormData();
-      fd.append('filename', track.file.name);
-      const res = await musicAPI.autoTag(fd);
-      const meta = res.data.metadata || {};
-      patchTrack(id, {
-        status: STATUS.TAGGED,
-        title:  meta.title  || track.title,
-        artist: meta.artist || track.artist,
-        album:  meta.album  || track.album,
-        genre:  meta.genre  || track.genre,
-      });
-    } catch (err) {
-      patchTrack(id, {
-        status: STATUS.ERROR,
-        error: err.response?.data?.detail || strings.bulk.messages.aiError,
-      });
-    }
-  };
-
-  /* ── Auto-tag ALL idle tracks in parallel (cap 4) ── */
-  const tagAll = async () => {
-    if (!aiAvailable) return;
-    setPhase('tagging');
-    setGlobalMsg(null);
-
-    const toTag = tracks.filter(t =>
-      t.status === STATUS.IDLE || t.status === STATUS.ERROR || t.status === STATUS.TAGGED
-    );
-
-    const CONCURRENCY = 4;
-    const results = [];
-    for (let i = 0; i < toTag.length; i += CONCURRENCY) {
-      const batch = toTag.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.allSettled(
-        batch.map(t => tagOne(t.id))
-      );
-      results.push(...batchResults);
-    }
-
-    const failed = results.filter(r => r.status === 'rejected').length;
-    setPhase('idle');
-    if (failed === 0) {
-      setGlobalMsg({ type: 'success', text: strings.bulk.messages.tagSuccess(toTag.length) });
-    } else {
-      setGlobalMsg({ type: 'error', text: strings.bulk.messages.tagPartial(toTag.length - failed, failed) });
-    }
-  };
-
-/* ── Upload a single track ── */
-const uploadOne = async (id) => {
-  const track = tracks.find(t => t.id === id);
-  if (!track || track.status === STATUS.DONE) return;
-
-  patchTrack(id, { status: STATUS.UPLOADING, error: null });
-
-  try {
-    const fd = new FormData();
-    fd.append('file', track.file);
-    fd.append('title', track.title || track.file.name);
-    if (track.artist) fd.append('artist', track.artist);
-    if (track.album)  fd.append('album',  track.album);
-    if (track.genre)  fd.append('genre',  track.genre);
-
-    const res = await musicAPI.upload(fd);
-    const newId = res.data.id;
-    patchTrack(id, {
-      status: STATUS.ANALYZING,
-      uploadedId: newId,
-    });
-
-    // Kick off background analysis polling.  We don't await this here
-    // because the bulk uploader fires many uploads in parallel; the
-    // status badge will tick from "Аналіз…" to "✓ Завантажено" on its
-    // own once the server's analysis BackgroundTask finishes.
-    pollUntilDone(id, newId);
-  } catch (err) {
-    const status = err.response?.status;
-    let msg;
-    if (status === 409) {
-      msg = strings.bulk.messages.dupError(err.response.data.detail);
-    } else {
-      msg = err.response?.data?.detail || strings.bulk.messages.uploadError;
-    }
-    patchTrack(id, { status: STATUS.ERROR, error: msg });
-  }
-};
-
-/* ── Poll server until analysis finishes ── */
-const pollUntilDone = async (localId, serverId) => {
-  try {
-    const final = await musicAPI.waitForAnalysis(serverId, {
-      intervalMs: 2000,
-      timeoutMs: 120_000,
-    });
-    if (final.analysis_status === 'ready') {
-      patchTrack(localId, { status: STATUS.DONE });
-    } else if (final.analysis_status === 'error') {
-      patchTrack(localId, {
-        status: STATUS.ERROR,
-        error: final.analysis_error || strings.bulk.messages.analysisError,
-      });
-    } else {
-      patchTrack(localId, {
-        status: STATUS.ANALYZING,
-        error: strings.bulk.messages.analysisTimeout,
-      });
-    }
-  } catch (e) {
-    patchTrack(localId, {
-      status: STATUS.ERROR,
-      error: strings.bulk.messages.analysisCheckFailed,
-    });
-  }
-};
-
-  /* ── Upload ALL tracks ── */
   const uploadAll = async () => {
-    setPhase('uploading');
-    setGlobalMsg(null);
+    if (items.length === 0) return;
+    setBusy(true);
+    setProgress(0);
+    const chunks = [];
+    for (let i = 0; i < items.length; i += 3) chunks.push(items.slice(i, i + 3));
 
-    const toUpload = tracks.filter((t) =>
-      t.status !== STATUS.DONE &&
-      t.status !== STATUS.UPLOADING &&
-      t.status !== STATUS.ANALYZING
-    );
-
-    // Upload in parallel (max 3 concurrent)
-    const CHUNK = 3;
-    for (let i = 0; i < toUpload.length; i += CHUNK) {
-      await Promise.all(toUpload.slice(i, i + CHUNK).map((t) => uploadOne(t.id)));
+    let done = 0;
+    for (const chunk of chunks) {
+      await Promise.all(
+        chunk.map(async (it) => {
+          update(it.id, { status: "processing" });
+          try {
+            const fd = new FormData();
+            fd.append("file", it.file);
+            fd.append("title", it.title);
+            fd.append("artist", it.artist);
+            fd.append("album", it.album);
+            fd.append("genre", it.genre);
+            await musicAPI.upload(fd);
+            update(it.id, { status: "ready" });
+          } catch {
+            update(it.id, { status: "error" });
+          } finally {
+            done += 1;
+            setProgress(Math.round((done / items.length) * 100));
+          }
+        })
+      );
     }
-
-    setPhase('done');
-    setGlobalMsg({
-      type: 'success',
-      text: strings.bulk.messages.uploadSuccess(toUpload.length),
-    });
+    setBusy(false);
+    toast({ title: t("bulk.done") });
+    setTimeout(() => navigate("/"), 800);
   };
-
-  /* ── Derived counts ── */
-  // ``done`` here means "fully uploaded AND analysed".  Tracks still
-  // in ANALYZING count as "in progress" (successfully accepted by the
-  // server, just waiting on the BackgroundTask).  We surface the
-  // ANALYZING count separately so the toolbar can show a useful
-  // progress indicator.
-  const counts = {
-    total: tracks.length,
-    tagged: tracks.filter((t) => t.status === STATUS.TAGGED || t.status === STATUS.DONE || t.status === STATUS.ANALYZING).length,
-    done: tracks.filter((t) => t.status === STATUS.DONE).length,
-    analyzing: tracks.filter((t) => t.status === STATUS.ANALYZING).length,
-    errors: tracks.filter((t) => t.status === STATUS.ERROR).length,
-    uploadable: tracks.filter(
-      (t) => t.status !== STATUS.DONE && t.status !== STATUS.ANALYZING
-    ).length,
-  };
-
-  const allDone = counts.total > 0 && counts.done === counts.total;
-  const busy =
-    phase === 'tagging' ||
-    phase === 'uploading' ||
-    tracks.some(
-      (t) => t.status === STATUS.UPLOADING || t.status === STATUS.ANALYZING
-    );
 
   return (
-    <>
-      {/* ── Header ── */}
-      <div className="page-header page-header-row">
-        <div>
-          <h1 className="page-title">{strings.bulk.pageTitle}</h1>
-          <p className="page-subtitle">
-            {strings.bulk.pageSubtitle}
-          </p>
-        </div>
-
-        {/* AI status */}
-        <div className="flex-center gap-sm flex-shrink-0">
-          {aiAvailable === true && (
-            <span className="pill pill-success">✦ AI ready</span>
-          )}
-          {aiAvailable === false && (
-            <span className="pill pill-muted">AI not configured</span>
-          )}
-        </div>
-      </div>
-
-      {/* ── Drop zone ── */}
-      <div
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        onClick={() => !busy && fileInputRef.current?.click()}
-        className="drop-zone"
-        style={{
-          borderColor: dragging ? 'var(--accent)' : 'var(--border-light)',
-          background: dragging ? 'var(--accent-subtle)' : 'var(--bg-secondary)',
-          cursor: busy ? 'default' : 'pointer',
-        }}
+    <div className="mx-auto max-w-5xl">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
       >
-        <div className="drop-zone-icon">🎵</div>
-        <p className="drop-zone-text">
-          {dragging ? strings.bulk.dropzone.active : strings.bulk.dropzone.inactive}
-        </p>
-        <p className="text-muted drop-zone-hint">
-          {strings.bulk.dropzone.hint}
-        </p>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".mp3,.wav,.flac,.ogg"
-          className="sr-only"
-          onChange={onFileInput}
-        />
-      </div>
+        <h1 className="mb-6 text-2xl font-semibold tracking-tight">{t("bulk.title")}</h1>
 
-      {/* ── Global message ── */}
-      {globalMsg && (
-        <div className={`alert alert-${globalMsg.type === 'success' ? 'success' : 'error'} mb-md`}>
-          {globalMsg.text}
-        </div>
-      )}
-
-      {/* ── Toolbar (only if tracks exist) ── */}
-      {tracks.length > 0 && (
-        <div className="flex-center flex-wrap mb-md gap-sm">
-          <button
-            className="btn btn-secondary gap-xs"
-            onClick={tagAll}
-            disabled={busy || !aiAvailable || allDone}
-          >
-            {phase === 'tagging'
-              ? <><SmallSpinner /> {strings.bulk.aiButton.tagging}</>
-              : `✨ ${strings.bulk.aiButton.idle}`}
-          </button>
-
-          <button
-            className="btn btn-primary gap-xs"
-            onClick={uploadAll}
-            disabled={busy || counts.uploadable === 0}
-          >
-            {phase === 'uploading'
-              ? <><SmallSpinner color="white" /> {strings.bulk.uploadButton.uploading}</>
-              : strings.bulk.uploadButton.idle(counts.uploadable)}
-          </button>
-
-          {counts.done > 0 && !busy && (
-            <button
-              className="btn btn-secondary btn-sm"
-              onClick={() =>
-                setTracks((t) => t.filter((x) => x.status !== STATUS.DONE))
-              }
-            >
-              {strings.bulk.clearDone}
-            </button>
-          )}
-
-          {!busy && (
-            <button
-              className="btn btn-danger btn-sm"
-              onClick={() => { setTracks([]); setGlobalMsg(null); setPhase('idle'); }}
-            >
-              {strings.bulk.clearAll}
-            </button>
-          )}
-
-          <span className="text-muted stats-text">
-            {strings.bulk.stats.ready(counts.done, counts.total)}
-            {counts.analyzing > 0 && (
-              <> · <span className="text-purple">{strings.bulk.stats.analyzing(counts.analyzing)}</span></>
-            )}
-            {counts.errors > 0 && <> · <span className="text-danger">{strings.bulk.stats.errors(counts.errors)}</span></>}
-          </span>
-        </div>
-      )}
-
-      {(phase === 'tagging' || phase === 'uploading') && tracks.length > 0 && (
-        <div className="mb-md">
-          <ProgressBar
-            done={
-              phase === 'uploading'
-                ? counts.done + counts.analyzing
-                : counts.tagged
-            }
-            total={counts.total}
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            addFiles(e.dataTransfer.files);
+          }}
+          className={`flex flex-col items-center justify-center rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors ${
+            dragActive ? "border-primary bg-primary/5" : "border-border"
+          }`}
+        >
+          <Files className="mb-3 h-8 w-8 text-muted-foreground" />
+          <p className="text-sm font-medium">{t("bulk.dropFiles")}</p>
+          <Button variant="outline" size="sm" className="mt-4" onClick={() => inputRef.current?.click()}>
+            {t("bulk.orBrowse")}
+          </Button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".mp3,.wav,.flac,.ogg,audio/*"
+            multiple
+            className="hidden"
+            onChange={(e) => addFiles(e.target.files)}
           />
         </div>
-      )}
 
-      {tracks.length > 0 ? (
-        <div className="card card-compact">
-          <TrackHeaders />
-          <div className="flex-col gap-xs">
-            {tracks.map(track => (
-              <TrackRow
-                key={track.id}
-                track={track}
-                aiAvailable={aiAvailable}
-                onUpdate={(field, value) => updateTrack(track.id, field, value)}
-                onRemove={() => setTracks(prev => prev.filter(t => t.id !== track.id))}
-                onTagOne={() => tagOne(track.id)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="empty-state">
-          <div className="empty-state-icon">📂</div>
-          <div className="empty-state-text">{strings.bulk.empty.title}</div>
-          <button className="btn btn-primary" onClick={() => fileInputRef.current?.click()}>
-            {strings.bulk.empty.button}
-          </button>
-        </div>
-      )}
+        {items.length > 0 && (
+          <>
+            <div className="my-4 flex items-center gap-3">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-secondary">
+                <div
+                  className="h-full rounded-full bg-primary transition-all"
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <span className="text-xs tabular-nums text-muted-foreground">{progress}%</span>
+            </div>
 
-      {allDone && (
-        <div className="flex gap-sm mt-lg">
-          <button className="btn btn-primary" onClick={() => navigate('/')}>
-            {strings.bulk.footer.dashboard}
-          </button>
-          <button
-            className="btn btn-secondary"
-            onClick={() => { setTracks([]); setGlobalMsg(null); setPhase('idle'); }}
-          >
-            {strings.bulk.footer.uploadMore}
-          </button>
-        </div>
-      )}
-    </>
+            <Card className="overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="w-[28%]">{t("upload.titleField")}</TableHead>
+                    <TableHead className="w-[22%]">{t("upload.artistField")}</TableHead>
+                    <TableHead className="w-[18%]">{t("upload.albumField")}</TableHead>
+                    <TableHead className="w-[14%]">{t("upload.genreField")}</TableHead>
+                    <TableHead className="w-[10%]">{t("bulk.statusPending")}</TableHead>
+                    <TableHead className="w-[8%]" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {items.map((it) => {
+                    const conf = STATUS[it.status] || STATUS.pending;
+                    const Icon = conf.icon;
+                    return (
+                      <TableRow key={it.id}>
+                        <TableCell>
+                          <Input
+                            value={it.title}
+                            onChange={(e) => update(it.id, { title: e.target.value })}
+                            className="h-8"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={it.artist}
+                            onChange={(e) => update(it.id, { artist: e.target.value })}
+                            className="h-8"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={it.album}
+                            onChange={(e) => update(it.id, { album: e.target.value })}
+                            className="h-8"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Input
+                            value={it.genre}
+                            onChange={(e) => update(it.id, { genre: e.target.value })}
+                            className="h-8"
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={conf.variant} className="gap-1">
+                            {Icon && <Icon className="h-3 w-3 animate-spin" />}
+                            {t(conf.label)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <button
+                            onClick={() => remove(it.id)}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive active:scale-95"
+                            aria-label={t("bulk.remove")}
+                          >
+                            <Trash className="h-4 w-4" />
+                          </button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </Card>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button onClick={uploadAll} disabled={busy} className="gap-2">
+                {busy ? <Spinner className="h-4 w-4 animate-spin" /> : <UploadSimple className="h-4 w-4" />}
+                {busy ? t("bulk.uploading", { done, total: items.length }) : t("bulk.uploadAll")}
+              </Button>
+              <Button variant="outline" onClick={autoTagAll} disabled={busy} className="gap-2">
+                <Sparkle className="h-4 w-4" />
+                {t("bulk.autoTagAll")}
+              </Button>
+            </div>
+          </>
+        )}
+      </motion.div>
+    </div>
   );
 }

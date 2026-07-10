@@ -1,15 +1,17 @@
 # Multi-stage build for React frontend
 
 # Stage 1: Build
-FROM node:18-alpine AS builder
+# Node 20+ required: Tailwind v4 (@tailwindcss/oxide) needs Node >= 20
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files (package.json only — resolve deps fresh in-container so the
+# correct Linux native bindings for @tailwindcss/oxide are installed)
+COPY package.json ./
 
 # Install dependencies
-RUN npm ci
+RUN npm install
 
 # Copy source code
 COPY . .

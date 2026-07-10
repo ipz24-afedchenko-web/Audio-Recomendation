@@ -89,3 +89,8 @@ class SpotifySearchResult(BaseModel):
 
 class SpotifyAddRequest(BaseModel):
     spotify_track_id: str
+
+
+class SpotifyPlayRequest(BaseModel):
+    device_id: Optional[str] = None
+    uri: Optional[str] = None

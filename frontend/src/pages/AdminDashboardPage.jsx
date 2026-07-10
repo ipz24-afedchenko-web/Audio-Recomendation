@@ -1,162 +1,153 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../utils/AuthContext';
-import { adminAPI, recommendAPI } from '../services/api';
-import { useTranslation } from 'react-i18next';
-import strings from '../strings';
+import { useEffect, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { motion } from "motion/react";
+import { Users, MusicNotes, Waveform, ChartBar, ArrowUp, Spinner, Shield } from "@phosphor-icons/react";
+import { adminAPI, recommendAPI } from "../services/api";
+import { useToast } from "../components/ui/toast";
+import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
+import { Button } from "../components/ui/button";
+import { Skeleton } from "../components/ui/skeleton";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "../components/ui/table";
 
-  const ALGO_LABELS = strings.recommend.algorithms;
+function StatTile({ icon: Icon, label, value }) {
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-3">
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
+          <Icon className="h-5 w-5" />
+        </span>
+        <div>
+          <p className="text-2xl font-semibold tabular-nums">{value}</p>
+          <p className="text-xs text-muted-foreground">{label}</p>
+        </div>
+      </div>
+    </Card>
+  );
+}
 
 export default function AdminDashboardPage() {
-  const { user } = useAuth();
-  useTranslation();
+  const { t } = useTranslation();
+  const { toast } = useToast();
   const [stats, setStats] = useState(null);
+  const [ab, setAb] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const [promoting, setPromoting] = useState(false);
-  const [message, setMessage] = useState('');
 
-  const load = () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    setError('');
-    adminAPI
-      .getStats()
-      .then((res) => setStats(res.data))
-      .catch((err) => {
-        if (err.response?.status === 403) {
-          setError(strings.admin.forbidden);
-        } else {
-          setError('Failed to load admin stats');
-        }
-      })
-      .finally(() => setLoading(false));
-  };
+    try {
+      const [s, a] = await Promise.all([
+        adminAPI.getStats().catch(() => null),
+        recommendAPI.getABStats().catch(() => null),
+      ]);
+      setStats(s?.data || null);
+      setAb(a?.data || null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    if (user?.is_superuser) load();
-    else setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
+    load();
+  }, [load]);
 
-  const handlePromote = async () => {
-    if (!stats?.ab?.best_algorithm) return;
+  const promote = async () => {
     setPromoting(true);
-    setMessage('');
     try {
-      await recommendAPI.promote(stats.ab.best_algorithm);
-      setMessage(strings.admin.ab.promoted);
+      const res = await recommendAPI.promote("best");
+      toast({ title: t("admin.promoted", { algorithm: res.data?.algorithm || "best" }) });
       load();
     } catch {
-      setMessage('Promotion failed');
+      toast({ variant: "destructive", title: t("common.error") });
     } finally {
       setPromoting(false);
     }
   };
 
+  const rows = ab?.stats || ab?.algorithms || [];
+  const best = ab?.best_algorithm || ab?.best;
+
   if (loading) {
-    return <div className="card mt-lg">{strings.admin.loading}</div>;
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-8 w-48" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 rounded-xl" />
+          ))}
+        </div>
+        <Skeleton className="h-64 rounded-xl" />
+      </div>
+    );
   }
-
-  if (!user?.is_superuser) {
-    return <div className="card mt-lg">{strings.admin.forbidden}</div>;
-  }
-
-  if (error) {
-    return <div className="card mt-lg text-danger">{error}</div>;
-  }
-
-  const ab = stats.ab || {};
-  const rows = ab.rows || [];
 
   return (
-    <>
-      <div className="flex-between align-center mb-md">
-        <div>
-          <h2 className="mb-0">{strings.admin.pageTitle}</h2>
-          <p className="text-muted mb-0">{strings.admin.pageSubtitle}</p>
-        </div>
+    <div className="space-y-8">
+      <div className="flex items-center gap-2">
+        <Shield className="h-6 w-6 text-primary" />
+        <h1 className="text-2xl font-semibold tracking-tight">{t("admin.title")}</h1>
       </div>
 
-      {/* Library overview */}
-      <div className="card-grid-3 mb-lg">
-        <div className="card">
-          <div className="stat-label">{strings.admin.library.users}</div>
-          <div className="stat-value">{stats.user_count}</div>
-        </div>
-        <div className="card">
-          <div className="stat-label">{strings.admin.library.tracks}</div>
-          <div className="stat-value">{stats.music_count}</div>
-        </div>
-        <div className="card">
-          <div className="stat-label">{strings.admin.library.analyzed}</div>
-          <div className="stat-value">{stats.analyzed_count}</div>
-        </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <StatTile icon={Users} label={t("admin.users")} value={stats?.users ?? stats?.total_users ?? 0} />
+        <StatTile icon={MusicNotes} label={t("admin.tracks")} value={stats?.tracks ?? stats?.total_tracks ?? 0} />
+        <StatTile icon={Waveform} label={t("admin.analyzed")} value={stats?.analyzed ?? stats?.analyzed_tracks ?? 0} />
       </div>
 
-      {/* A/B results */}
-      <div className="card">
-        <div className="flex-between align-center mb-sm">
-          <h3 className="mb-0">{strings.admin.ab.title}</h3>
-          {ab.best_algorithm != null && (
-            <span className={`pill ${ab.winner_significant ? 'pill-success' : 'pill-muted'}`}>
-              {strings.admin.ab.best}: {ALGO_LABELS[ab.best_algorithm] || `#${ab.best_algorithm}`}
-              {' · '}
-              {ab.winner_significant
-                ? strings.admin.ab.significant
-                : strings.admin.ab.notSignificant}
-              {ab.p_value != null && ab.p_value !== 0 && (
-                <> {' · '}{strings.admin.ab.pValue}: {ab.p_value}</>
-              )}
-            </span>
+      <Card>
+        <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <ChartBar className="h-4 w-4" />
+            {t("admin.abTitle")}
+          </CardTitle>
+          <Button variant="outline" size="sm" onClick={promote} disabled={promoting} className="gap-2">
+            {promoting ? <Spinner className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
+            {t("admin.promote")}
+          </Button>
+        </CardHeader>
+        <CardContent>
+          {best && (
+            <p className="mb-4 rounded-lg bg-primary/10 px-3 py-2 text-sm text-primary">
+              {t("admin.best", { algorithm: best })}
+            </p>
           )}
-        </div>
-
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted">{strings.admin.ab.noData}</p>
-        ) : (
-          <div className="ab-stats-grid">
-            <div className="ab-stats-header">
-              <span>{strings.admin.abColumns.algorithm}</span>
-              <span>{strings.admin.abColumns.impressions}</span>
-              <span>{strings.admin.abColumns.clicks}</span>
-              <span>{strings.admin.abColumns.plays}</span>
-              <span>{strings.admin.abColumns.ctr}</span>
-              <span>{strings.admin.ab.zScore}</span>
-              <span>{strings.admin.ab.pValue}</span>
-            </div>
-            {rows.map((row) => (
-              <div key={row.algorithm} className="ab-stats-row">
-                <span className="tag">
-                  {ALGO_LABELS[row.algorithm] || strings.recommend.track(row.algorithm)}
-                  {ab.default_algorithm === row.algorithm && (
-                    <span className="tag-default"> ({strings.admin.ab.defaultLabel})</span>
-                  )}
-                </span>
-                <span>{row.impressions}</span>
-                <span>{row.clicks}</span>
-                <span>{row.plays}</span>
-                <span className={row.ctr > 0 ? 'text-success' : ''}>{row.ctr}%</span>
-                <span>{row.z_score != null ? row.z_score : '—'}</span>
-                <span>
-                  {row.p_value != null ? row.p_value : '—'}
-                  {row.significant && <span className="text-success"> ✓</span>}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {message && <p className="text-sm text-success mt-sm">{message}</p>}
-
-        {ab.best_algorithm != null && ab.default_algorithm !== ab.best_algorithm && (
-          <button
-            className="btn btn-primary mt-md"
-            onClick={handlePromote}
-            disabled={promoting}
-          >
-            {promoting ? 'Promoting…' : strings.admin.ab.promote}
-          </button>
-        )}
-      </div>
-    </>
+          {rows.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">{t("admin.noData")}</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>{t("recommend.algorithmCol")}</TableHead>
+                  <TableHead>{t("recommend.impressions")}</TableHead>
+                  <TableHead>{t("recommend.ctr")}</TableHead>
+                  <TableHead>{t("admin.zScore")}</TableHead>
+                  <TableHead>{t("admin.pValue")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((row) => (
+                  <TableRow key={row.algorithm}>
+                    <TableCell className="font-medium">{row.algorithm}</TableCell>
+                    <TableCell className="tabular-nums">{row.impressions ?? 0}</TableCell>
+                    <TableCell className="tabular-nums">
+                      {row.ctr != null ? `${Math.round(row.ctr * 100)}%` : "—"}
+                    </TableCell>
+                    <TableCell className="tabular-nums">{row.z_score?.toFixed?.(2) ?? row.zscore?.toFixed?.(2) ?? "—"}</TableCell>
+                    <TableCell className="tabular-nums">{row.p_value?.toFixed?.(3) ?? row.pvalue?.toFixed?.(3) ?? "—"}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
