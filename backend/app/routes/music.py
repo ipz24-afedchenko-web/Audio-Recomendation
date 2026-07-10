@@ -43,6 +43,8 @@ async def upload_music(
     artist: str = Form(None),
     album: str = Form(None),
     genre: str = Form(None),
+    external_id: str = Form(None),
+    external_uri: str = Form(None),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -123,6 +125,8 @@ async def upload_music(
         artist=artist,
         album=album,
         genre=genre,
+        external_id=external_id or None,
+        external_uri=external_uri or None,
         file_path=file_path,
         file_size=file_size,
         file_hash=file_hash,
@@ -313,6 +317,26 @@ async def auto_tag_file(
     try:
         tagger = get_ai_tagger()
         metadata = tagger.auto_tag(filename)
+
+        # Best-effort Spotify lookup so the upload can be linked to a
+        # catalog track.  Fails silently — auto-tagging still works without
+        # a Spotify match (e.g. Spotify disabled / not yet Premium-activated).
+        if metadata.get("artist") and metadata.get("title"):
+            try:
+                from app.services.spotify import get_spotify_client
+                from app.database import get_settings as _get_settings
+
+                if _get_settings().spotify_enabled:
+                    client = get_spotify_client()
+                    results = client.search(
+                        f"{metadata['artist']} {metadata['title']}", limit=1
+                    )
+                    if results:
+                        top = results[0]
+                        metadata["spotify_track_id"] = top.get("spotify_track_id")
+                        metadata["external_uri"] = top.get("external_uri")
+            except Exception as se:  # noqa: BLE001
+                logger.info("Spotify auto-link skipped for %s: %s", filename, se)
 
         return {
             "success": True,

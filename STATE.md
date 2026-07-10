@@ -1,6 +1,6 @@
 # Project Status - Audio-Based Music Recommender
 
-**Last Updated**: 2026-07-08
+**Last Updated**: 2026-07-10
 
 ---
 
@@ -620,6 +620,8 @@ npm run dev
 | **Admin dashboard** | ✅ Complete | 100% | **W4-3: `GET /api/admin/stats` (superuser) + `AdminDashboardPage` (counts, A/B table, promote); `UserResponse.is_superuser`** |
 | **bcrypt upgrade** | ✅ Complete | 100% | **W4-4: `bcrypt>=4.0.1` in requirements; passlib compat confirmed; 72-byte guard in `auth.py`** |
 | **updated_at triggers** | ✅ Complete | 100% | **W4-5: migration 008 — PG `set_updated_at()` fn + BEFORE UPDATE triggers on `users`/`music`; SQLite keeps ORM `onupdate`** |
+| **Spotify player SDK** | ✅ Complete | 100% | **W5-1: Web Playback SDK singleton, GlobalPlayer SDK controls, `/settings` page for OAuth, Premium message + deep link, removed embed iframe** |
+| **AI + Spotify linking** | ✅ Complete | 100% | **W5-2: auto-tag endpoint now searches Spotify, returns `spotify_track_id`; upload stores `external_id`/`external_uri` for local files** |
 
 ---
 

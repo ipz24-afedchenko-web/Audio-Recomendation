@@ -16,6 +16,8 @@ import AnalyzePage from "./pages/AnalyzePage";
 import RecommendationsPage from "./pages/RecommendationsPage";
 import AdminDashboardPage from "./pages/AdminDashboardPage";
 import CallbackPage from "./pages/CallbackPage";
+import SettingsPage from "./pages/SettingsPage";
+import GlobalPlayer from "./components/GlobalPlayer";
 
 export default function App() {
   return (
@@ -42,6 +44,7 @@ export default function App() {
                     <Route path="/bulk-upload" element={<BulkUploadPage />} />
                     <Route path="/analyze/:musicId" element={<AnalyzePage />} />
                     <Route path="/recommendations" element={<RecommendationsPage />} />
+                    <Route path="/settings" element={<SettingsPage />} />
                     <Route
                       path="/admin"
                       element={
@@ -54,6 +57,7 @@ export default function App() {
 
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
+                <GlobalPlayer />
               </BrowserRouter>
             </TooltipProvider>
           </ToastProvider>

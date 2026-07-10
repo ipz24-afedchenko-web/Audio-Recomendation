@@ -31,6 +31,7 @@
     "admin": "Admin",
     "logout": "Log out",
     "profile": "Profile",
+    "settings": "Settings",
     "language": "Language",
     "theme": "Theme",
     "light": "Light",
@@ -104,7 +105,8 @@
     "addTrack": "Add",
     "noResults": "No tracks found",
     "alreadyExists": "This track already exists in your library",
-    "connectSpotify": "Connect Spotify to add tracks"
+    "connectSpotify": "Connect Spotify to add tracks",
+    "linkedSpotify": "Linked to a Spotify track"
   },
   "bulk": {
     "title": "Bulk upload",
@@ -183,6 +185,22 @@
   "player": {
     "title": "Now playing",
     "spotify": "Spotify",
-    "local": "Local file"
+    "local": "Local file",
+    "openInSpotify": "Open in Spotify",
+    "connectPremium": "Connect Premium",
+    "connectPremiumHint": "Connect Spotify in Settings to play in-app",
+    "openInSpotifyHint": "Open in Spotify to play the full track",
+    "premiumRequired": "Spotify Premium is required to play in-app"
+  },
+  "settings": {
+    "title": "Settings",
+    "spotifySection": "Spotify",
+    "spotifyDesc": "Connect your Spotify account to play tracks in the app with the Web Playback SDK.",
+    "spotifyConnected": "Spotify connected",
+    "spotifyConnectedDesc": "Your account is linked. You can play Spotify tracks directly in the player.",
+    "spotifyDisconnected": "Spotify not connected",
+    "spotifyDisconnectedDesc": "Connect your account to enable in-app Spotify playback.",
+    "disconnect": "Disconnect",
+    "connectSpotify": "Connect Spotify"
   }
 }

@@ -76,7 +76,7 @@ function FileTab() {
   const { toast } = useToast();
   const [file, setFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
-  const [form, setForm] = useState({ title: "", artist: "", album: "", genre: "" });
+  const [form, setForm] = useState({ title: "", artist: "", album: "", genre: "", spotifyTrackId: "", spotifyExternalUri: "" });
   const [uploading, setUploading] = useState(false);
   const [autoTagging, setAutoTagging] = useState(false);
 
@@ -103,6 +103,8 @@ function FileTab() {
         artist: d.artist || f0.artist,
         album: d.album || f0.album,
         genre: d.genre || f0.genre,
+        spotifyTrackId: d.spotify_track_id || f0.spotifyTrackId,
+        spotifyExternalUri: d.external_uri || f0.spotifyExternalUri,
       }));
       toast({ title: t("upload.aiTag"), description: t("upload.autoFillRunning") });
     } catch {
@@ -123,6 +125,10 @@ function FileTab() {
       fd.append("artist", form.artist);
       fd.append("album", form.album);
       fd.append("genre", form.genre);
+      if (form.spotifyTrackId) {
+        fd.append("external_id", form.spotifyTrackId);
+        fd.append("external_uri", form.spotifyExternalUri || `spotify:track:${form.spotifyTrackId}`);
+      }
       const res = await musicAPI.upload(fd);
       const id = res.data?.id;
       toast({ title: t("upload.uploadSuccess") });
@@ -163,6 +169,21 @@ function FileTab() {
           <Input id="genre" value={form.genre} onChange={set("genre")} />
         </div>
       </div>
+
+      {form.spotifyTrackId && (
+        <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3 text-sm">
+          <SpotifyLogo className="h-4 w-4 text-[#1DB954]" weight="fill" />
+          <span className="text-muted-foreground">{t("upload.linkedSpotify")}</span>
+          <a
+            href={`https://open.spotify.com/track/${form.spotifyTrackId}`}
+            target="_blank"
+            rel="noreferrer"
+            className="ml-auto text-xs underline-offset-2 hover:underline"
+          >
+            {t("player.openInSpotify")}
+          </a>
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button type="submit" disabled={!file || uploading} className="gap-2">

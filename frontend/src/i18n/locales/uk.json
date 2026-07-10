@@ -31,6 +31,7 @@
     "admin": "Адмін",
     "logout": "Вийти",
     "profile": "Профіль",
+    "settings": "Налаштування",
     "language": "Мова",
     "theme": "Тема",
     "light": "Світла",
@@ -104,7 +105,8 @@
     "addTrack": "Додати",
     "noResults": "Треків не знайдено",
     "alreadyExists": "Цей трек уже є у вашій бібліотеці",
-    "connectSpotify": "Підключіть Spotify, щоб додавати треки"
+    "connectSpotify": "Підключіть Spotify, щоб додавати треки",
+    "linkedSpotify": "Пов'язано з треком Spotify"
   },
   "bulk": {
     "title": "Масове завантаження",
@@ -183,6 +185,22 @@
   "player": {
     "title": "Зараз грає",
     "spotify": "Spotify",
-    "local": "Локальний файл"
+    "local": "Локальний файл",
+    "openInSpotify": "Відкрити в Spotify",
+    "connectPremium": "Підключити Premium",
+    "connectPremiumHint": "Підключіть Spotify у Налаштуваннях для відтворення в застосунку",
+    "openInSpotifyHint": "Відкрийте в Spotify, щоб програти повний трек",
+    "premiumRequired": "Для відтворення в застосунку потрібен Spotify Premium"
+  },
+  "settings": {
+    "title": "Налаштування",
+    "spotifySection": "Spotify",
+    "spotifyDesc": "Підключіть свій акаунт Spotify, щоб відтворювати треки у застосунку через Web Playback SDK.",
+    "spotifyConnected": "Spotify підключено",
+    "spotifyConnectedDesc": "Ваш акаунт прив'язано. Ви можете грати треки Spotify безпосередньо в програвачі.",
+    "spotifyDisconnected": "Spotify не підключено",
+    "spotifyDisconnectedDesc": "Підключіть акаунт, щоб увімкнути відтворення Spotify у застосунку.",
+    "disconnect": "Відключити",
+    "connectSpotify": "Підключити Spotify"
   }
 }

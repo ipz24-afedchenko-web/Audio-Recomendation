@@ -12,6 +12,7 @@ import {
   UserCircle,
   SignOut,
   ListPlus,
+  Gear,
 } from "@phosphor-icons/react";
 import ThemeToggle from "./ThemeToggle";
 import LanguageSwitcher from "./LanguageSwitcher";
@@ -117,6 +118,10 @@ export default function Navbar() {
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>{user?.email}</DropdownMenuLabel>
               <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate("/settings")}>
+                <Gear className="h-4 w-4" />
+                {t("nav.settings")}
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={handleLogout}>
                 <SignOut className="h-4 w-4" />
                 {t("nav.logout")}

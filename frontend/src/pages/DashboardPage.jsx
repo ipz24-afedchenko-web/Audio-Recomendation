@@ -30,7 +30,7 @@ import StatusBadge from "../components/StatusBadge";
 
 function TrackCard({ track, onAnalyze, onDelete, onPlay, analyzingId }) {
   const { t } = useTranslation();
-  const isSpotify = Boolean(track.spotify_track_id || track.spotifyTrackId);
+  const isSpotify = track.source === "spotify" || Boolean(track.spotify_track_id || track.spotifyTrackId || track.external_id);
   const busy = analyzingId === track.id;
 
   return (

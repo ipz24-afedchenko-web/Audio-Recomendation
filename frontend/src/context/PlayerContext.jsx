@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { musicAPI } from '../services/api';
+import { spotifyPlayTrack, spotifyResumePlayback, spotifyPauseTrack } from '../lib/spotifyPlayer';
 
 const PlayerContext = createContext(null);
 
@@ -48,7 +49,9 @@ export function PlayerProvider({ children }) {
   }, []);
 
   const playTrack = useCallback((track) => {
-    const isSpotify = Boolean(track.spotify_track_id || track.spotifyTrackId);
+    const isSpotify =
+      track.source === 'spotify' ||
+      Boolean(track.spotify_track_id || track.spotifyTrackId || track.external_id);
     const id = track.id ?? track.music_id;
     const next = {
       id,
@@ -56,31 +59,50 @@ export function PlayerProvider({ children }) {
       artist: track.artist,
       album: track.album,
       genre: track.genre,
+      duration: track.duration || 0,
       mode: isSpotify ? 'spotify' : 'local',
-      src: isSpotify ? null : streamUrl(id),
-      spotifyUri: track.spotify_track_id || track.spotifyTrackId || null,
+      src: isSpotify ? (track.preview_url || null) : streamUrl(id),
+      spotifyUri: track.spotify_track_id || track.spotifyTrackId || track.external_id || null,
       spotifyUrl: track.spotify_url || track.external_url || null,
+      previewUrl: track.preview_url || null,
     };
     setCurrentTrack(next);
     setIsPlaying(true);
+    if (isSpotify && next.spotifyUri) {
+      spotifyPlayTrack(`spotify:track:${next.spotifyUri}`);
+    }
   }, []);
 
   const togglePlay = useCallback(() => {
     const a = audioRef.current;
     if (!currentTrack) return;
     if (currentTrack.mode === 'spotify') {
-      setIsPlaying((p) => !p);
+      if (currentTrack.src && a) {
+        if (a.paused) a.play().catch(() => {});
+        else a.pause();
+      } else {
+        if (isPlaying) {
+          spotifyPauseTrack();
+        } else {
+          spotifyResumePlayback();
+        }
+        setIsPlaying((p) => !p);
+      }
       return;
     }
     if (!a) return;
     if (a.paused) a.play().catch(() => {});
     else a.pause();
-  }, [currentTrack]);
+  }, [currentTrack, isPlaying]);
 
-  // Load local source when track changes
+  // Load source when track changes (local files + Spotify 30s previews)
   useEffect(() => {
     const a = audioRef.current;
-    if (!a || !currentTrack || currentTrack.mode !== 'local') return;
+    if (!a || !currentTrack) return;
+    const playable =
+      currentTrack.mode === 'local' ||
+      (currentTrack.mode === 'spotify' && currentTrack.src);
+    if (!playable) return;
     if (a.src !== currentTrack.src) {
       a.src = currentTrack.src;
       a.load();
@@ -92,7 +114,7 @@ export function PlayerProvider({ children }) {
   const setVolume = useCallback((v) => setVolumeState(Math.max(0, Math.min(1, v))), []);
   const seek = useCallback((t) => {
     const a = audioRef.current;
-    if (a && currentTrack?.mode === 'local') {
+    if (a && (currentTrack?.mode === 'local' || currentTrack?.mode === 'spotify')) {
       a.currentTime = t;
       setProgress(t);
     }
@@ -103,6 +125,9 @@ export function PlayerProvider({ children }) {
     setCurrentTrack(null);
     setIsPlaying(false);
     setProgress(0);
+  }, []);
+  const pausePreview = useCallback(() => {
+    if (audioRef.current) audioRef.current.pause();
   }, []);
 
   const value = {
@@ -116,6 +141,7 @@ export function PlayerProvider({ children }) {
     setVolume,
     seek,
     stop,
+    pausePreview,
   };
 
   return (

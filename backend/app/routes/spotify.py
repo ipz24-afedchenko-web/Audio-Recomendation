@@ -19,10 +19,12 @@ from app.schemas.music import (
     MusicResponse,
     SpotifySearchResult,
     SpotifyAddRequest,
+    SpotifyPlayRequest,
 )
 from app.utils.auth import get_current_active_user
 from app.models.user import User
 from app.services.spotify import (
+    SPOTIFY_API_BASE,
     SpotifyClient,
     SpotifyError,
     get_spotify_client,
@@ -328,3 +330,203 @@ def spotify_auth_player_token(
     db.commit()
 
     return {"token": auth.access_token}
+
+
+def _ensure_token(auth, db) -> str:
+    """Return a valid Spotify access token for ``auth``, refreshing if expired."""
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    if auth.expires_at > now_ts:
+        return auth.access_token
+
+    token_url = "https://accounts.spotify.com/api/token"
+    data = {
+        "grant_type": "refresh_token",
+        "refresh_token": auth.refresh_token,
+        "client_id": settings.spotify_client_id,
+        "client_secret": settings.spotify_client_secret,
+    }
+    resp = _httpx.post(token_url, data=data, timeout=10)
+    if resp.status_code != 200:
+        logger.error("Spotify token refresh failed: %s", resp.text)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Spotify token refresh failed",
+        )
+    body = resp.json()
+    auth.access_token = body.get("access_token", auth.access_token)
+    auth.expires_at = now_ts + body.get("expires_in", 3600)
+    if "refresh_token" in body:
+        auth.refresh_token = body["refresh_token"]
+    db.commit()
+    return auth.access_token
+
+
+@router.post("/play")
+def spotify_play(
+    payload: SpotifyPlayRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Start playback on the user's Web Playback SDK device (or active device).
+
+    The browser registers itself as a Spotify Connect device via the SDK;
+    this endpoint uses the stored user token to command playback there.
+    """
+    auth = (
+        db.query(SpotifyAuthModel)
+        .filter(SpotifyAuthModel.user_id == current_user.id)
+        .first()
+    )
+    if auth is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Spotify account not connected",
+        )
+    token = _ensure_token(auth, db)
+    body = {}
+    if payload.uri:
+        body["uris"] = [payload.uri]
+    params = {}
+    if payload.device_id:
+        params["device_id"] = payload.device_id
+    import httpx as _httpx  # noqa: PLC0415
+    try:
+        resp = _httpx.put(
+            f"{SPOTIFY_API_BASE}/me/player/play",
+            params=params,
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("Spotify play request error: %s", str(e))
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Spotify play failed: {e}",
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Spotify play failed ({resp.status_code}): {resp.text[:200]}",
+        )
+    return {"ok": True}
+
+
+@router.post("/pause")
+def spotify_pause(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    auth = (
+        db.query(SpotifyAuthModel)
+        .filter(SpotifyAuthModel.user_id == current_user.id)
+        .first()
+    )
+    if auth is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Spotify account not connected",
+        )
+    token = _ensure_token(auth, db)
+    import httpx as _httpx  # noqa: PLC0415
+    resp = _httpx.put(
+        f"{SPOTIFY_API_BASE}/me/player/pause",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Spotify pause failed ({resp.status_code})",
+        )
+    return {"ok": True}
+
+
+@router.post("/seek")
+def spotify_seek(
+    position_ms: int,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    auth = (
+        db.query(SpotifyAuthModel)
+        .filter(SpotifyAuthModel.user_id == current_user.id)
+        .first()
+    )
+    if auth is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Spotify account not connected",
+        )
+    token = _ensure_token(auth, db)
+    import httpx as _httpx  # noqa: PLC0415
+    resp = _httpx.put(
+        f"{SPOTIFY_API_BASE}/me/player/seek?position_ms={int(position_ms)}",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if resp.status_code >= 400:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Spotify seek failed ({resp.status_code})",
+        )
+    return {"ok": True}
+
+
+@router.get("/player")
+def spotify_player_state(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Return the current Spotify playback state (is_playing, progress_ms, duration_ms).
+
+    Proxies ``GET /me/player`` from the Spotify Web API.  Returns zeros when
+    nothing is playing instead of a 204, so the frontend doesn't have to
+    handle a special empty state.
+    """
+    auth = (
+        db.query(SpotifyAuthModel)
+        .filter(SpotifyAuthModel.user_id == current_user.id)
+        .first()
+    )
+    if auth is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Spotify account not connected",
+        )
+    token = _ensure_token(auth, db)
+    import httpx as _httpx  # noqa: PLC0415
+    resp = _httpx.get(
+        f"{SPOTIFY_API_BASE}/me/player",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    if resp.status_code == 204:
+        return {"is_playing": False, "progress_ms": 0, "duration_ms": 0}
+    if resp.status_code != 200:
+        return {"is_playing": False, "progress_ms": 0, "duration_ms": 0}
+    data = resp.json()
+    item = data.get("item") or {}
+    return {
+        "is_playing": data.get("is_playing", False),
+        "progress_ms": data.get("progress_ms", 0),
+        "duration_ms": item.get("duration_ms", 0),
+    }
+
+
+@router.post("/auth/disconnect")
+def spotify_auth_disconnect(
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Remove the current user's stored Spotify tokens (disconnect)."""
+    deleted = (
+        db.query(SpotifyAuthModel)
+        .filter(SpotifyAuthModel.user_id == current_user.id)
+        .delete()
+    )
+    db.commit()
+    logger.info(
+        "Spotify disconnected for user_id=%s (rows=%s)", current_user.id, deleted
+    )
+    return {"ok": True, "disconnected": bool(deleted)}

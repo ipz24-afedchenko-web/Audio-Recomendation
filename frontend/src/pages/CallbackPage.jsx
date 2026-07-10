@@ -22,14 +22,19 @@ export default function CallbackPage() {
 
     musicAPI.spotifyAuth
       .callback(code)
-      .then(() => {
-        if (active) setState("success");
-      })
-      .catch(() => {
-        if (active) setState("error");
-      })
-      .finally(() => {
-        if (active) setTimeout(() => navigate("/"), 1200);
+      .catch(() => {})
+      .finally(async () => {
+        if (!active) return;
+        // Trust the real connection state, not just the exchange response
+        // (a transient exchange error can still leave valid stored tokens).
+        try {
+          const res = await musicAPI.spotifyAuth.status();
+          setState(res.data?.connected ? "success" : "error");
+        } catch {
+          setState("error");
+        } finally {
+          setTimeout(() => navigate("/"), 1200);
+        }
       });
 
     return () => {

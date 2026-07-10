@@ -106,6 +106,8 @@ export const musicAPI = {
     callback: (code) => api.post('/spotify/auth/callback', { code }),
     status: () => api.get('/spotify/auth/status'),
     playerToken: () => api.get('/spotify/auth/player-token'),
+    disconnect: () => api.post('/spotify/auth/disconnect'),
+    playerState: () => api.get('/spotify/player'),
   },
 
   /* Audio stream URL builder */

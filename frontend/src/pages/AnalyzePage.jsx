@@ -167,7 +167,7 @@ export default function AnalyzePage() {
     );
   }
 
-  const isSpotify = Boolean(track.spotify_track_id || track.spotifyTrackId);
+  const isSpotify = track.source === "spotify" || Boolean(track.spotify_track_id || track.spotifyTrackId || track.external_id);
   const f = features || {};
   const canPlay = isSpotify || track.analysis_status === "ready";
 
