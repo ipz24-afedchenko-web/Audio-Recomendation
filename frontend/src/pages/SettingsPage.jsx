@@ -13,6 +13,7 @@ import { musicAPI } from "../services/api";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 
+// ── Main ──────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const { t } = useTranslation();
   const [spotifyConnected, setSpotifyConnected] = useState(false);
@@ -31,9 +32,7 @@ export default function SettingsPage() {
       const res = await musicAPI.spotifyAuth.login();
       const url = res.data?.url;
       if (url) window.location.href = url;
-    } catch {
-      // handled by global 401 interceptor
-    }
+    } catch { /* handled by 401 interceptor */ }
   };
 
   const handleDisconnect = async () => {
@@ -41,15 +40,13 @@ export default function SettingsPage() {
     try {
       await musicAPI.spotifyAuth.disconnect();
       setSpotifyConnected(false);
-    } catch {
-      // ignore
-    } finally {
+    } catch { /* ignore */ } finally {
       setDisconnecting(false);
     }
   };
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className="mx-auto max-w-2xl space-y-8">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
@@ -57,11 +54,10 @@ export default function SettingsPage() {
       >
         <h1 className="mb-6 text-2xl font-semibold tracking-tight">{t("settings.title")}</h1>
 
+        {/* ── Spotify section ─────────────────────────────── */}
         <Card className="p-6">
           <h2 className="mb-4 text-lg font-medium">{t("settings.spotifySection")}</h2>
-          <p className="mb-5 text-sm text-muted-foreground">
-            {t("settings.spotifyDesc")}
-          </p>
+          <p className="mb-5 text-sm text-muted-foreground">{t("settings.spotifyDesc")}</p>
 
           {loading ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -74,12 +70,8 @@ export default function SettingsPage() {
                 <CheckCircle className="h-5 w-5" weight="fill" />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-foreground">
-                  {t("settings.spotifyConnected")}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.spotifyConnectedDesc")}
-                </p>
+                <p className="text-sm font-medium text-foreground">{t("settings.spotifyConnected")}</p>
+                <p className="text-xs text-muted-foreground">{t("settings.spotifyConnectedDesc")}</p>
               </div>
               <Button
                 variant="outline"
@@ -88,11 +80,7 @@ export default function SettingsPage() {
                 disabled={disconnecting}
                 className="gap-2 shrink-0"
               >
-                {disconnecting ? (
-                  <Spinner className="h-4 w-4 animate-spin" />
-                ) : (
-                  <SignOut className="h-4 w-4" />
-                )}
+                {disconnecting ? <Spinner className="h-4 w-4 animate-spin" /> : <SignOut className="h-4 w-4" />}
                 {t("settings.disconnect")}
               </Button>
             </div>
@@ -103,12 +91,8 @@ export default function SettingsPage() {
                   <Warning className="h-5 w-5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-foreground">
-                    {t("settings.spotifyDisconnected")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {t("settings.spotifyDisconnectedDesc")}
-                  </p>
+                  <p className="text-sm font-medium text-foreground">{t("settings.spotifyDisconnected")}</p>
+                  <p className="text-xs text-muted-foreground">{t("settings.spotifyDisconnectedDesc")}</p>
                 </div>
               </div>
               <Button onClick={handleConnect} className="gap-2">

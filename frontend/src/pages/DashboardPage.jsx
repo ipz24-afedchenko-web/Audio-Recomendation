@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   MusicNotes,
   Play,
@@ -10,6 +10,9 @@ import {
   Waveform,
   Plus,
   Spinner,
+  CheckSquare,
+  Square,
+  X,
 } from "@phosphor-icons/react";
 import { useAuth } from "../utils/AuthContext";
 import { usePlayer } from "../context/PlayerContext";
@@ -17,6 +20,7 @@ import { useToast } from "../components/ui/toast";
 import { musicAPI, analyzeAPI } from "../services/api";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { Input } from "../components/ui/input";
 import { Skeleton } from "../components/ui/skeleton";
 import {
   Dialog,
@@ -28,14 +32,34 @@ import {
 } from "../components/ui/dialog";
 import StatusBadge from "../components/StatusBadge";
 
-function TrackCard({ track, onAnalyze, onDelete, onPlay, analyzingId }) {
+// ── Debounce hook ─────────────────────────────────────────────────────────────
+function useDebounce(value, delay = 300) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
+
+// ── TrackCard ─────────────────────────────────────────────────────────────────
+function TrackCard({ track, onAnalyze, onDelete, onPlay, analyzingId, selected, onToggleSelect }) {
   const { t } = useTranslation();
   const isSpotify = track.source === "spotify" || Boolean(track.spotify_track_id || track.spotifyTrackId || track.external_id);
   const busy = analyzingId === track.id;
 
   return (
-    <Card className="group flex flex-col overflow-hidden transition-all hover:border-primary/40 hover:shadow-md">
+    <Card className={`group flex flex-col overflow-hidden transition-all hover:border-primary/40 hover:shadow-md ${selected ? "border-primary/60 ring-1 ring-primary/30" : ""}`}>
       <div className="flex items-start gap-3 p-4">
+        {/* Checkbox */}
+        <button
+          className="mt-0.5 shrink-0 text-muted-foreground transition-colors hover:text-primary"
+          onClick={() => onToggleSelect(track.id)}
+          aria-label={selected ? "Deselect" : "Select"}
+        >
+          {selected ? <CheckSquare className="h-4 w-4 text-primary" weight="fill" /> : <Square className="h-4 w-4" />}
+        </button>
+
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
           <MusicNotes className="h-5 w-5" weight="fill" />
         </span>
@@ -97,6 +121,7 @@ function TrackCard({ track, onAnalyze, onDelete, onPlay, analyzingId }) {
   );
 }
 
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function DashboardPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
@@ -109,6 +134,15 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [analyzingId, setAnalyzingId] = useState(null);
   const [toDelete, setToDelete] = useState(null);
+
+  // Search
+  const [searchRaw, setSearchRaw] = useState("");
+  const search = useDebounce(searchRaw, 280);
+
+  // Batch select
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [confirmBulk, setConfirmBulk] = useState(false);
 
   const load = useCallback(async () => {
     if (!user?.id) return;
@@ -124,9 +158,22 @@ export default function DashboardPage() {
     }
   }, [user?.id, t]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+
+  // Reset selection whenever tracks change
+  useEffect(() => { setSelected(new Set()); }, [tracks.length]);
+
+  // Filtered list
+  const filtered = useMemo(() => {
+    if (!search.trim()) return tracks;
+    const q = search.toLowerCase();
+    return tracks.filter(
+      (tr) =>
+        tr.title?.toLowerCase().includes(q) ||
+        tr.artist?.toLowerCase().includes(q) ||
+        tr.album?.toLowerCase().includes(q)
+    );
+  }, [tracks, search]);
 
   const handleAnalyze = async (track) => {
     setAnalyzingId(track.id);
@@ -158,11 +205,48 @@ export default function DashboardPage() {
     }
   };
 
+  const handleBulkDelete = async () => {
+    setBulkDeleting(true);
+    setConfirmBulk(false);
+    const ids = [...selected];
+    try {
+      const { succeeded, failed } = await musicAPI.bulkDelete(ids);
+      setTracks((prev) => prev.filter((x) => !succeeded.includes(x.id)));
+      setSelected(new Set());
+      if (failed.length > 0) {
+        toast({ variant: "destructive", title: `${failed.length} tracks failed to delete` });
+      } else {
+        toast({ title: `${succeeded.length} track${succeeded.length !== 1 ? "s" : ""} deleted` });
+      }
+    } catch {
+      toast({ variant: "destructive", title: t("common.error") });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map((t) => t.id)));
+    }
+  };
+
   const analyzed = tracks.filter((x) => x.analysis_status === "ready").length;
   const pending = tracks.filter((x) => x.analysis_status !== "ready").length;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -212,7 +296,8 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-3 gap-4">
+          {/* Stats */}
+          <div className="grid grid-cols-3 gap-4 max-w-xl">
             {[
               { label: t("dashboard.tracksCount", { count: tracks.length }), value: tracks.length },
               { label: t("dashboard.analyzedCount", { count: analyzed }), value: analyzed },
@@ -225,13 +310,90 @@ export default function DashboardPage() {
             ))}
           </div>
 
+          {/* Search + Batch toolbar */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={searchRaw}
+                onChange={(e) => setSearchRaw(e.target.value)}
+                placeholder={t("dashboard.searchPlaceholder") || "Search by title, artist, album…"}
+                className="pl-9"
+              />
+              {searchRaw && (
+                <button
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  onClick={() => setSearchRaw("")}
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Batch controls */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-muted-foreground"
+              onClick={toggleSelectAll}
+            >
+              {selected.size === filtered.length && filtered.length > 0
+                ? <CheckSquare className="h-4 w-4 text-primary" weight="fill" />
+                : <Square className="h-4 w-4" />}
+              {t("dashboard.selectAll") || "Select all"}
+            </Button>
+
+            <AnimatePresence>
+              {selected.size > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="flex items-center gap-2"
+                >
+                  <span className="text-sm text-muted-foreground">
+                    {selected.size} selected
+                  </span>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setConfirmBulk(true)}
+                    disabled={bulkDeleting}
+                  >
+                    {bulkDeleting ? <Spinner className="h-4 w-4 animate-spin" /> : <Trash className="h-4 w-4" />}
+                    {t("dashboard.deleteSelected") || "Delete selected"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelected(new Set())}
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* No search results */}
+          {filtered.length === 0 && (
+            <div className="rounded-xl border border-dashed border-border bg-card/50 p-10 text-center">
+              <p className="text-sm text-muted-foreground">
+                {t("dashboard.noSearchResults") || `No tracks matching "${search}"`}
+              </p>
+            </div>
+          )}
+
+          {/* Track grid */}
           <motion.div
             initial="hidden"
             animate="show"
-            variants={{ show: { transition: { staggerChildren: 0.05 } } }}
+            variants={{ show: { transition: { staggerChildren: 0.04 } } }}
             className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
           >
-            {tracks.map((track) => (
+            {filtered.map((track) => (
               <motion.div
                 key={track.id}
                 variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}
@@ -243,6 +405,8 @@ export default function DashboardPage() {
                   onAnalyze={handleAnalyze}
                   onDelete={setToDelete}
                   onPlay={playTrack}
+                  selected={selected.has(track.id)}
+                  onToggleSelect={toggleSelect}
                 />
               </motion.div>
             ))}
@@ -250,6 +414,7 @@ export default function DashboardPage() {
         </>
       )}
 
+      {/* Single delete dialog */}
       <Dialog open={Boolean(toDelete)} onOpenChange={(o) => !o && setToDelete(null)}>
         <DialogContent>
           <DialogHeader>
@@ -261,6 +426,27 @@ export default function DashboardPage() {
               <Button variant="outline">{t("common.cancel")}</Button>
             </DialogClose>
             <Button variant="destructive" onClick={confirmDelete}>
+              {t("common.delete")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk delete dialog */}
+      <Dialog open={confirmBulk} onOpenChange={(o) => !o && setConfirmBulk(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("common.delete")}</DialogTitle>
+            <DialogDescription>
+              {t("dashboard.bulkDeleteConfirm") || `Delete ${selected.size} selected track${selected.size !== 1 ? "s" : ""}? This cannot be undone.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 flex justify-end gap-2">
+            <DialogClose asChild>
+              <Button variant="outline">{t("common.cancel")}</Button>
+            </DialogClose>
+            <Button variant="destructive" onClick={handleBulkDelete} disabled={bulkDeleting}>
+              {bulkDeleting ? <Spinner className="h-4 w-4 animate-spin mr-2" /> : null}
               {t("common.delete")}
             </Button>
           </div>

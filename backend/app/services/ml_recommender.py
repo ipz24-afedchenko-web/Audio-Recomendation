@@ -296,6 +296,13 @@ class MLRecommender:
         self.scaler = StandardScaler()
         matrix_scaled = self.scaler.fit_transform(matrix)
 
+        # W4-2: Prevent StandardScaler from distorting one-hot genre variables
+        # by restoring their unscaled values with a strong categorical weight.
+        n_genre = self._feature_dim - extract_feature_vector_length(include_genre=False)
+        GENRE_WEIGHT = 3.0
+        if n_genre > 0:
+            matrix_scaled[:, -n_genre:] = matrix[:, -n_genre:] * GENRE_WEIGHT
+
         # Determine number of clusters
         if self.auto_tune and len(music_ids) >= 4:
             optimal_k, sil_score = self._find_optimal_clusters(
@@ -450,8 +457,15 @@ class MLRecommender:
             source_scaled = self.scaler.transform(source_vec)
             cand_scaled = self.scaler.transform(cand_matrix)
         else:
-            source_scaled = source_vec
-            cand_scaled = cand_matrix
+            source_scaled = source_vec.copy()
+            cand_scaled = cand_matrix.copy()
+
+        # W4-2: Prevent StandardScaler from distorting one-hot genre variables
+        n_genre = self._feature_dim - extract_feature_vector_length(include_genre=False)
+        GENRE_WEIGHT = 3.0
+        if n_genre > 0:
+            source_scaled[:, -n_genre:] = source_vec[:, -n_genre:] * GENRE_WEIGHT
+            cand_scaled[:, -n_genre:] = cand_matrix[:, -n_genre:] * GENRE_WEIGHT
 
         # 5. Compute similarity / distance
         if algorithm == 2:

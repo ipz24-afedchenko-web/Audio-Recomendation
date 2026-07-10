@@ -79,7 +79,10 @@
     "statusReady": "Готово",
     "statusError": "Помилка",
     "deleteConfirm": "Видалити цей трек? Це не можна скасувати.",
-    "reanalyze": "Переаналізувати"
+    "reanalyze": "Переаналізувати",
+    "searchPlaceholder": "Пошук треків, виконавців, альбомів...",
+    "selectAll": "Вибрати все",
+    "deleteSelected": "Видалити вибране"
   },
   "upload": {
     "title": "Додати музику",
@@ -138,7 +141,8 @@
     "playLocal": "Грати локальний файл",
     "playSpotify": "Грати у Spotify",
     "recommendations": "Отримати рекомендації",
-    "noData": "Дані аналізу поки недоступні"
+    "noData": "Дані аналізу поки недоступні",
+    "spotifyNoWaveform": "Детальний аудіо-профіль недоступний (Spotify не надав аудіо-фрагмент)"
   },
   "recommend": {
     "title": "Рекомендації",
@@ -160,7 +164,8 @@
     "ctr": "CTR",
     "promote": "Просунути найкращий",
     "promoted": "Просунуто {{algorithm}}",
-    "defaultAlgo": "За замовчуванням: {{algorithm}}"
+    "defaultAlgo": "За замовчуванням: {{algorithm}}",
+    "filterPlaceholder": "Фільтрувати результати…"
   },
   "admin": {
     "title": "Адмін",

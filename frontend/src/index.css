@@ -22,7 +22,7 @@
   --destructive-foreground: 0 0% 98%;
   --border: 240 5.9% 90%;
   --input: 240 5.9% 90%;
-  --ring: 160 84% 39%;
+  --ring: 240 5.9% 60%;
   --radius: 0.75rem;
 
   --chart-1: 160 84% 39%;
@@ -51,7 +51,7 @@
   --destructive-foreground: 0 0% 98%;
   --border: 240 3.7% 16%;
   --input: 240 3.7% 18%;
-  --ring: 158 64% 45%;
+  --ring: 240 5% 55%;
 
   --chart-1: 158 64% 50%;
   --chart-2: 199 89% 55%;

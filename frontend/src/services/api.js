@@ -53,6 +53,15 @@ export const musicAPI = {
 
   delete: (id) => api.delete(`/music/${id}`),
 
+  /** Delete multiple tracks in parallel. Returns { succeeded, failed } id arrays. */
+  bulkDelete: async (ids) => {
+    const results = await Promise.allSettled(ids.map((id) => api.delete(`/music/${id}`)));
+    const succeeded = [];
+    const failed = [];
+    results.forEach((r, i) => (r.status === 'fulfilled' ? succeeded : failed).push(ids[i]));
+    return { succeeded, failed };
+  },
+
   autoTag: (formData) =>
     api.post('/music/auto-tag', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

@@ -79,7 +79,10 @@
     "statusReady": "Ready",
     "statusError": "Error",
     "deleteConfirm": "Delete this track? This cannot be undone.",
-    "reanalyze": "Re-analyze"
+    "reanalyze": "Re-analyze",
+    "searchPlaceholder": "Search tracks, artists, albums...",
+    "selectAll": "Select all",
+    "deleteSelected": "Delete selected"
   },
   "upload": {
     "title": "Add music",
@@ -138,7 +141,8 @@
     "playLocal": "Play local file",
     "playSpotify": "Play on Spotify",
     "recommendations": "Get recommendations",
-    "noData": "Analysis data is not available yet"
+    "noData": "Analysis data is not available yet",
+    "spotifyNoWaveform": "Detailed audio profile is unavailable (Spotify did not provide an audio snippet)"
   },
   "recommend": {
     "title": "Recommendations",
@@ -160,7 +164,8 @@
     "ctr": "CTR",
     "promote": "Promote best",
     "promoted": "Promoted {{algorithm}}",
-    "defaultAlgo": "Default: {{algorithm}}"
+    "defaultAlgo": "Default: {{algorithm}}",
+    "filterPlaceholder": "Filter results…"
   },
   "admin": {
     "title": "Admin",

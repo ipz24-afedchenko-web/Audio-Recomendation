@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Plot from "react-plotly.js";
 import { motion } from "framer-motion";
@@ -31,6 +31,13 @@ const clamp01 = (v) => {
   return Math.max(0, Math.min(1, n));
 };
 const norm = (v, min, max) => clamp01((Number(v) - min) / (max - min));
+
+// Pitch Class → standard key name (handles null/undefined and the falsy 0 case)
+const KEY_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+const keyName = (k) => {
+  if (k === null || k === undefined || k === "") return "—";
+  return KEY_NAMES[Number(k)] ?? "—";
+};
 
 function StatTile({ icon: Icon, label, value, unit }) {
   return (
@@ -82,12 +89,16 @@ export default function AnalyzePage() {
 
   const chartLayout = useMemo(() => {
     const dark = theme === "dark";
+    const gridAlpha = dark ? "rgba(161,161,170,0.15)" : "rgba(82,82,91,0.12)";
+    const zeroAlpha = dark ? "rgba(161,161,170,0.25)" : "rgba(82,82,91,0.2)";
     return {
       paper_bgcolor: "transparent",
       plot_bgcolor: "transparent",
-      font: { color: dark ? "#a1a1aa" : "#52525b", family: "Geist Variable, sans-serif" },
-      margin: { t: 30, r: 16, b: 30, l: 16 },
+      font: { color: dark ? "#a1a1aa" : "#52525b", family: "Geist Variable, sans-serif", size: 11 },
+      margin: { t: 30, r: 24, b: 40, l: 24 },
       autosize: true,
+      xaxis: { gridcolor: gridAlpha, zerolinecolor: zeroAlpha, tickfont: { size: 10 } },
+      yaxis: { gridcolor: gridAlpha, zerolinecolor: zeroAlpha, tickfont: { size: 10 } },
     };
   }, [theme]);
 
@@ -108,12 +119,41 @@ export default function AnalyzePage() {
         ],
         theta: ["Energy", "Valence", "Tempo", "Loudness", "Brightness", "ZCR"],
         fill: "toself",
-        line: { color: "#10b981" },
+        line: { color: "#10b981", width: 2 },
         fillcolor: "rgba(16,185,129,0.18)",
         name: "profile",
       },
     ];
   }, [features]);
+
+  // Radar-specific layout (larger margins to prevent label clipping)
+  const radarLayout = useMemo(() => {
+    const dark = theme === "dark";
+    const gridAlpha = dark ? "rgba(161,161,170,0.18)" : "rgba(82,82,91,0.14)";
+    return {
+      paper_bgcolor: "transparent",
+      plot_bgcolor: "transparent",
+      font: { color: dark ? "#a1a1aa" : "#52525b", family: "Geist Variable, sans-serif", size: 11 },
+      margin: { t: 40, r: 50, b: 40, l: 50 },
+      autosize: true,
+      polar: {
+        bgcolor: "transparent",
+        radialaxis: {
+          visible: true,
+          range: [0, 1],
+          gridcolor: gridAlpha,
+          linecolor: gridAlpha,
+          tickfont: { size: 9 },
+          tickformat: ".0%",
+        },
+        angularaxis: {
+          tickfont: { size: 11 },
+          gridcolor: gridAlpha,
+          linecolor: gridAlpha,
+        },
+      },
+    };
+  }, [theme]);
 
   const mfccData = useMemo(() => {
     const arr = features?.mfcc_mean || features?.mfcc || [];
@@ -196,11 +236,9 @@ export default function AnalyzePage() {
             <Play className="h-4 w-4" />
             {t("analyze.playLocal")}
           </Button>
-          <Button className="gap-2" asChild>
-            <Link to="/recommendations">
-              <Sparkle className="h-4 w-4" />
-              {t("analyze.recommendations")}
-            </Link>
+          <Button className="gap-2" onClick={() => navigate("/recommendations", { state: { sourceId: Number(musicId) } })}>
+            <Sparkle className="h-4 w-4" />
+            {t("analyze.recommendations")}
           </Button>
         </div>
       </motion.div>
@@ -212,11 +250,12 @@ export default function AnalyzePage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
             <StatTile icon={Gauge} label={t("analyze.tempo")} value={Math.round(f.tempo || 0)} unit="BPM" />
-            <StatTile icon={Waves} label={t("analyze.key")} value={f.key_name || f.key || "—"} />
+            <StatTile icon={Waves} label={t("analyze.key")} value={keyName(f.key)} />
             <StatTile icon={Waves} label={t("analyze.loudness")} value={Math.round(f.loudness || 0)} unit="dB" />
             <StatTile icon={Lightning} label={t("analyze.energy")} value={Math.round((f.energy || 0) * 100)} unit="%" />
+            <StatTile icon={Smiley} label={t("analyze.valence")} value={Math.round((f.valence || 0) * 100)} unit="%" />
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -227,7 +266,7 @@ export default function AnalyzePage() {
               <CardContent>
                 <Plot
                   data={radarData}
-                  layout={{ ...chartLayout, polar: { bgcolor: "transparent" } }}
+                  layout={radarLayout}
                   config={config}
                   style={{ width: "100%", height: 320 }}
                   useResizeHandler
@@ -235,47 +274,47 @@ export default function AnalyzePage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm flex items-center gap-2">
-                  <Smiley className="h-4 w-4" /> {t("analyze.valence")}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-3xl font-semibold tabular-nums">{Math.round((f.valence || 0) * 100)}%</p>
-                <p className="mt-1 text-xs text-muted-foreground">Valence</p>
-              </CardContent>
-            </Card>
+            {!(f.mfcc_mean && f.mfcc_mean.length > 0 && f.mfcc_mean.some(v => v !== 0)) ? (
+              <Card className="col-span-1 lg:col-span-2">
+                <CardContent className="flex items-center justify-center py-12 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    {t("analyze.spotifyNoWaveform")}
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">{t("analyze.mfccTitle")}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Plot
+                      data={mfccData}
+                      layout={chartLayout}
+                      config={config}
+                      style={{ width: "100%", height: 300 }}
+                      useResizeHandler
+                    />
+                  </CardContent>
+                </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">{t("analyze.mfccTitle")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Plot
-                  data={mfccData}
-                  layout={chartLayout}
-                  config={config}
-                  style={{ width: "100%", height: 300 }}
-                  useResizeHandler
-                />
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">{t("analyze.chromaTitle")}</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Plot
-                  data={chromaData}
-                  layout={chartLayout}
-                  config={config}
-                  style={{ width: "100%", height: 300 }}
-                  useResizeHandler
-                />
-              </CardContent>
-            </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-sm">{t("analyze.chromaTitle")}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <Plot
+                      data={chromaData}
+                      layout={chartLayout}
+                      config={config}
+                      style={{ width: "100%", height: 300 }}
+                      useResizeHandler
+                    />
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </div>
         </>
       )}

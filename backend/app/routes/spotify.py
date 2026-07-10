@@ -3,7 +3,10 @@ from datetime import datetime, timezone
 import secrets as _secrets
 from urllib.parse import urlencode as _urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+import io
+import httpx
+import librosa
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -40,6 +43,106 @@ class SpotifyAuthCallbackRequest(BaseModel):
 router = APIRouter(prefix="/api/spotify", tags=["spotify"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+def _analyze_spotify_preview_task(music_id: int, preview_url: str | None, title: str = "", artist: str = ""):
+    from app.database import SessionLocal
+    from app.models.music import Music, ANALYSIS_STATUS_READY, ANALYSIS_STATUS_ERROR
+    from app.services.audio_analyzer import AudioAnalyzer
+    
+    db = SessionLocal()
+    try:
+        music = db.query(Music).filter(Music.id == music_id).first()
+        if not music or not music.audio_features:
+            return
+            
+        try:
+            import httpx
+            import tempfile
+            
+            resp_content = None
+            
+            with open(f"/app/debug_task_{music_id}.txt", "w") as df:
+                df.write(f"title={repr(title)}, artist={repr(artist)}, preview={repr(preview_url)}")
+            
+            if preview_url:
+                try:
+                    with httpx.Client(timeout=10) as client:
+                        resp = client.get(preview_url)
+                        resp.raise_for_status()
+                        resp_content = resp.content
+                except Exception as e:
+                    logger.warning("Spotify preview fetch failed: %s", e)
+            
+            if not resp_content and title and artist:
+                try:
+                    import urllib.parse
+                    query = urllib.parse.quote_plus(f"{title} {artist}")
+                    itunes_url = f"https://itunes.apple.com/search?term={query}&media=music&limit=1"
+                    logger.info("Trying iTunes fallback: %s", itunes_url)
+                    with httpx.Client(timeout=10) as client:
+                        itunes_resp = client.get(itunes_url)
+                        itunes_resp.raise_for_status()
+                        data = itunes_resp.json()
+                        logger.info("iTunes results count: %d", len(data.get("results", [])))
+                        if data.get("results") and data["results"][0].get("previewUrl"):
+                            fallback_url = data["results"][0]["previewUrl"]
+                            logger.info("Downloading iTunes preview: %s", fallback_url)
+                            resp2 = client.get(fallback_url)
+                            resp2.raise_for_status()
+                            resp_content = resp2.content
+                        else:
+                            logger.warning("iTunes search succeeded but no previewUrl found. Data: %s", data)
+                except Exception as e:
+                    logger.warning("iTunes preview fallback failed: %s", e)
+                    
+            if not resp_content:
+                raise Exception("No preview audio available from Spotify or iTunes.")
+
+            with tempfile.NamedTemporaryFile(suffix=".m4a", delete=True) as tmp:
+                tmp.write(resp_content)
+                tmp.flush()
+                import librosa
+                import warnings
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    y, sr = librosa.load(tmp.name, sr=22050)
+            
+            analyzer = AudioAnalyzer(sr=sr)
+            mfcc_feat = analyzer._extract_timbre_features(y, sr)
+            chroma_feat = analyzer._extract_harmony_features(y, sr)
+            
+            feats = music.audio_features
+            if mfcc_feat.get("mfcc_mean"):
+                feats.mfcc_mean = mfcc_feat["mfcc_mean"]
+                feats.mfcc_std = mfcc_feat["mfcc_std"]
+            if chroma_feat.get("chroma_stft_mean"):
+                feats.chroma_stft_mean = chroma_feat["chroma_stft_mean"]
+                feats.chroma_stft_std = chroma_feat["chroma_stft_std"]
+                
+        except Exception as e:
+            logger.warning("Failed to analyze preview for music_id=%s: %s", music_id, e)
+            music.analysis_error = str(e)[:500]
+            if music.audio_features:
+                music.audio_features.mfcc_mean = None
+                music.audio_features.mfcc_std = None
+                music.audio_features.chroma_stft_mean = None
+                music.audio_features.chroma_stft_std = None
+        else:
+            music.analysis_error = None
+            
+        music.analysis_status = ANALYSIS_STATUS_READY
+        db.commit()
+        
+        try:
+            from app.services.ml_recommender import MLRecommender
+            recommender = MLRecommender()
+            recommender.load_models()
+            recommender.auto_retrain_if_needed(db)
+        except Exception as e:
+            logger.warning("Auto-retrain after Spotify analysis failed: %s", e)
+            
+    finally:
+        db.close()
 
 
 def _require_spotify() -> SpotifyClient:
@@ -100,6 +203,7 @@ def spotify_search(
 )
 def add_spotify_track(
     payload: SpotifyAddRequest,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -151,6 +255,8 @@ def add_spotify_track(
             detail=f"'{track.get('title')}' is already in your library",
         )
 
+    preview_url = track.get("preview_url")
+
     # 3. Persist Music row (no file_path, no hash).
     db_music = Music(
         title=track.get("title") or "Unknown",
@@ -160,8 +266,8 @@ def add_spotify_track(
         source=SOURCE_SPOTIFY,
         external_id=track_id,
         external_uri=track.get("external_uri"),
-        preview_url=track.get("preview_url"),
-        analysis_status=ANALYSIS_STATUS_READY,
+        preview_url=preview_url,
+        analysis_status="analyzing",
         user_id=current_user.id,
     )
     db.add(db_music)
@@ -174,6 +280,11 @@ def add_spotify_track(
 
     db.commit()
     db.refresh(db_music)
+    
+    artist_name = track.get("artist") or ""
+    title = track.get("title") or ""
+    background_tasks.add_task(_analyze_spotify_preview_task, db_music.id, preview_url, title, artist_name)
+        
     logger.info(
         "Spotify track added: user_id=%s music_id=%s track=%s",
         current_user.id, db_music.id, track_id,

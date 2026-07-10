@@ -59,10 +59,11 @@ export default function AdminDashboardPage() {
   }, [load]);
 
   const promote = async () => {
+    if (!best) return;
     setPromoting(true);
     try {
-      const res = await recommendAPI.promote("best");
-      toast({ title: t("admin.promoted", { algorithm: res.data?.algorithm || "best" }) });
+      const res = await recommendAPI.promote(best);
+      toast({ title: t("admin.promoted", { algorithm: res.data?.default_algorithm || best }) });
       load();
     } catch {
       toast({ variant: "destructive", title: t("common.error") });
@@ -71,7 +72,7 @@ export default function AdminDashboardPage() {
     }
   };
 
-  const rows = ab?.stats || ab?.algorithms || [];
+  const rows = ab?.rows || ab?.stats || ab?.algorithms || [];
   const best = ab?.best_algorithm || ab?.best;
 
   if (loading) {
@@ -96,9 +97,9 @@ export default function AdminDashboardPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatTile icon={Users} label={t("admin.users")} value={stats?.users ?? stats?.total_users ?? 0} />
-        <StatTile icon={MusicNotes} label={t("admin.tracks")} value={stats?.tracks ?? stats?.total_tracks ?? 0} />
-        <StatTile icon={Waveform} label={t("admin.analyzed")} value={stats?.analyzed ?? stats?.analyzed_tracks ?? 0} />
+        <StatTile icon={Users} label={t("admin.users")} value={stats?.user_count ?? 0} />
+        <StatTile icon={MusicNotes} label={t("admin.tracks")} value={stats?.music_count ?? 0} />
+        <StatTile icon={Waveform} label={t("admin.analyzed")} value={stats?.analyzed_count ?? 0} />
       </div>
 
       <Card>

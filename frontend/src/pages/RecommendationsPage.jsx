@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Sparkle,
@@ -9,6 +10,8 @@ import {
   Waveform,
   ArrowCounterClockwise,
   ChartBar,
+  MagnifyingGlass,
+  X,
 } from "@phosphor-icons/react";
 import { musicAPI, recommendAPI } from "../services/api";
 import { useAuth } from "../utils/AuthContext";
@@ -46,6 +49,7 @@ export default function RecommendationsPage() {
   const { user } = useAuth();
   const { playTrack } = usePlayer();
   const { toast } = useToast();
+  const location = useLocation();
 
   const [tracks, setTracks] = useState([]);
   const [sourceId, setSourceId] = useState("");
@@ -54,6 +58,10 @@ export default function RecommendationsPage() {
   const [recs, setRecs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [noResults, setNoResults] = useState(false);
+  const [abTestEnabled, setAbTestEnabled] = useState(false);
+
+  // Local filter over result cards
+  const [recFilter, setRecFilter] = useState("");
 
   const [abStats, setAbStats] = useState(null);
   const [training, setTraining] = useState(false);
@@ -64,11 +72,18 @@ export default function RecommendationsPage() {
       const res = await musicAPI.getUserMusic(user.id);
       const list = res.data || [];
       setTracks(list);
-      if (!sourceId && list.length) setSourceId(String(list[0].id));
+      // Pre-select track from navigate state (passed by AnalyzePage)
+      const navId = location.state?.sourceId;
+      if (navId) {
+        setSourceId(String(navId));
+      } else if (!sourceId && list.length) {
+        setSourceId(String(list[0].id));
+      }
     } catch {
       /* ignore */
     }
-  }, [user?.id, sourceId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const loadAb = useCallback(async () => {
     try {
@@ -89,15 +104,10 @@ export default function RecommendationsPage() {
     setLoading(true);
     setNoResults(false);
     try {
-      const res = await recommendAPI.get(Number(sourceId), limit, Number(algorithm), false);
+      const res = await recommendAPI.get(Number(sourceId), limit, Number(algorithm), abTestEnabled);
       const list = res.data?.recommendations || res.data || [];
       setRecs(list);
       setNoResults(list.length === 0);
-      try {
-        await recommendAPI.recordEvent("impression", Number(algorithm), Number(sourceId));
-      } catch {
-        /* ignore */
-      }
       loadAb();
     } catch {
       toast({ variant: "destructive", title: t("common.error") });
@@ -120,16 +130,31 @@ export default function RecommendationsPage() {
   };
 
   const onPlay = (rec) => {
-    const m = rec.music || rec;
+    // recommended_music is the correct key from the API response
+    const m = rec.recommended_music || rec.music || rec;
     playTrack(m);
     try {
-      recommendAPI.recordEvent("click", Number(algorithm), Number(sourceId), m.id);
+      const actualAlgorithm = rec.algorithm || Number(algorithm);
+      recommendAPI.recordEvent("click", actualAlgorithm, Number(sourceId), m.id);
     } catch {
       /* ignore */
     }
   };
 
-  const statsRows = abStats?.stats || abStats?.algorithms || [];
+  const statsRows = abStats?.rows || abStats?.stats || abStats?.algorithms || [];
+
+  const filteredRecs = useMemo(() => {
+    if (!recFilter.trim()) return recs;
+    const q = recFilter.toLowerCase();
+    return recs.filter((rec) => {
+      const m = rec.recommended_music || rec.music || rec;
+      return (
+        m.title?.toLowerCase().includes(q) ||
+        m.artist?.toLowerCase().includes(q) ||
+        m.genre?.toLowerCase().includes(q)
+      );
+    });
+  }, [recs, recFilter]);
 
   return (
     <div className="space-y-8">
@@ -180,6 +205,20 @@ export default function RecommendationsPage() {
               onChange={(e) => setLimit(Math.max(1, Number(e.target.value) || 1))}
             />
           </div>
+          <div className="space-y-2 flex flex-col justify-center">
+            <div className="flex items-center gap-2 mt-4">
+              <input
+                type="checkbox"
+                id="abTest"
+                checked={abTestEnabled}
+                onChange={(e) => setAbTestEnabled(e.target.checked)}
+                className="h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              />
+              <Label htmlFor="abTest" className="mb-0 cursor-pointer">
+                A/B Test
+              </Label>
+            </div>
+          </div>
         </div>
         <Button onClick={fetchRecs} disabled={loading || !sourceId} className="mt-4 gap-2">
           {loading ? <Spinner className="h-4 w-4 animate-spin" /> : <Sparkle className="h-4 w-4" />}
@@ -195,18 +234,53 @@ export default function RecommendationsPage() {
         </div>
       )}
 
+      {!loading && recs.length > 0 && (
+        <div className="relative mb-2 max-w-sm">
+          <MagnifyingGlass className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={recFilter}
+            onChange={(e) => setRecFilter(e.target.value)}
+            placeholder={t("recommend.filterPlaceholder") || "Filter results…"}
+            className="pl-9"
+          />
+          {recFilter && (
+            <button
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              onClick={() => setRecFilter("")}
+              aria-label="Clear filter"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {!loading && noResults && (
         <div className="rounded-xl border border-dashed border-border bg-card/50 p-12 text-center text-sm text-muted-foreground">
           {t("recommend.noResults")}
         </div>
       )}
 
-      {!loading && recs.length > 0 && (
+      {!loading && filteredRecs.length === 0 && recs.length > 0 && (
+        <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">
+          No recommendations match "{recFilter}"
+        </div>
+      )}
+
+      {!loading && filteredRecs.length > 0 && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {recs.map((rec, i) => {
-            const m = rec.music || rec;
+          {filteredRecs.map((rec, i) => {
+            // The API returns `recommended_music` — fall back gracefully
+            const m = rec.recommended_music || rec.music || rec;
             const sim = rec.similarity ?? rec.similarity_score ?? 0;
-            const isSpotify = Boolean(m.spotify_track_id || m.spotifyTrackId);
+            const isSpotify = Boolean(
+              m.source === "spotify" ||
+              m.spotify_track_id ||
+              m.spotifyTrackId ||
+              m.external_id
+            );
+            // Spotify album art: reconstruct from external_id via embed thumbnail
+            const coverUrl = m.image_url || null;
             return (
               <motion.div
                 key={m.id || i}
@@ -214,21 +288,71 @@ export default function RecommendationsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: i * 0.03 }}
               >
-                <Card className="flex h-full flex-col p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">{m.title}</p>
-                      <p className="truncate text-sm text-muted-foreground">{m.artist}</p>
+                <Card className="flex h-full flex-col overflow-hidden">
+                  {/* Header: cover art + meta */}
+                  <div className="flex items-start gap-3 p-4">
+                    {/* Album art placeholder */}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground overflow-hidden">
+                      {coverUrl ? (
+                        <img
+                          src={coverUrl}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          onError={(e) => (e.currentTarget.style.display = "none")}
+                        />
+                      ) : (
+                        <span className="text-lg">🎵</span>
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium leading-snug">
+                        {m.title || t("common.unknown")}
+                      </p>
+                      <p className="truncate text-sm text-muted-foreground">
+                        {m.artist || "—"}
+                      </p>
                       {m.genre && (
-                        <p className="mt-1 truncate text-xs text-muted-foreground">{m.genre}</p>
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {m.genre}
+                        </p>
                       )}
                     </div>
-                    <span className="shrink-0 rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium tabular-nums text-primary">
+                    {/* Similarity badge */}
+                    <span className="shrink-0 self-start rounded-full bg-primary/15 px-2.5 py-1 text-xs font-medium tabular-nums text-primary">
                       {Math.round(sim * 100)}%
                     </span>
                   </div>
-                  <div className="mt-3 flex items-center gap-2 border-t border-border pt-3">
-                    <Button variant="ghost" size="sm" className="gap-2" onClick={() => onPlay(rec)}>
+
+                  {/* Spotify embed preview */}
+                  {isSpotify && m.external_id && (
+                    <div className="px-4 pb-2">
+                      <iframe
+                        src={`https://open.spotify.com/embed/track/${m.external_id}?utm_source=generator&theme=0`}
+                        width="100%"
+                        height="80"
+                        frameBorder="0"
+                        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                        loading="lazy"
+                        className="rounded-lg"
+                        style={{ backgroundColor: 'transparent', colorScheme: 'normal' }}
+                      />
+                    </div>
+                  )}
+
+                  {/* Footer: actions */}
+                  <div className="mt-auto flex items-center gap-2 border-t border-border px-4 py-2.5">
+                    {isSpotify ? (
+                      <span className="flex items-center gap-1.5 text-xs text-[#1DB954]">
+                        <SpotifyLogo className="h-4 w-4" weight="fill" />
+                        Spotify
+                      </span>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto gap-2"
+                      onClick={() => onPlay(rec)}
+                    >
                       {isSpotify ? <SpotifyLogo className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                       {t("common.play")}
                     </Button>

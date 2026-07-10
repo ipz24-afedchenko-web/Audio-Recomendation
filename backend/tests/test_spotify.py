@@ -187,7 +187,8 @@ def test_status_hides_tab_when_health_false(
     from app.services import spotify as spotify_svc
 
     spotify_svc.reset_spotify_health_for_testing()
-    # No successful probe → healthy stays False → status disabled.
-    r = client.get("/api/spotify/status", headers=auth_headers)
-    assert r.status_code == 200
-    assert r.json()["enabled"] is False
+    with patch.object(spotify_svc, "_probe_healthy", return_value=False):
+        # No successful probe -> healthy stays False -> status disabled.
+        r = client.get("/api/spotify/status", headers=auth_headers)
+        assert r.status_code == 200
+        assert r.json()["enabled"] is False
