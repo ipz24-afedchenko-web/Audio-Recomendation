@@ -22,7 +22,9 @@ import {
   spotifyPlayTrack,
   spotifyResumePlayback,
   spotifyPauseTrack,
-  spotifySeek,
+  spotifySetVolume,
+  spotifySdkPause,
+  spotifySdkResume,
 } from "../lib/spotifyPlayer";
 
 function formatTime(s) {
@@ -113,6 +115,9 @@ export default function GlobalPlayer() {
       setSdkReady(isReady);
       if (isReady) {
         setSdkError(null);
+        // SDK is taking over playback — stop the preview audio to avoid
+        // two streams playing simultaneously.
+        pausePreview();
       }
     })();
     return () => {
@@ -177,10 +182,12 @@ export default function GlobalPlayer() {
   const handleSpotifyPlayPause = () => {
     if (!currentTrack?.spotifyUri) return;
     if (effectivePlaying) {
-      spotifyPauseTrack();
+      spotifySdkPause();
+      setSdkPlaying(false);
       if (currentTrack.src) pausePreview();
     } else {
-      spotifyResumePlayback();
+      spotifySdkResume();
+      setSdkPlaying(true);
       if (currentTrack.src) togglePlay();
     }
   };
@@ -188,15 +195,15 @@ export default function GlobalPlayer() {
   const handleSpotifySeek = (v) => {
     const fraction = v[0] / 100;
     const posMs = fraction * (effectiveDuration * 1000);
-    spotifySeek(posMs);
+    // Seek via the SDK directly (instant, no backend round-trip).
+    const player = getSpotifyPlayer();
+    if (player) player.seek(posMs).catch(() => {});
     // Sync the audio element (preview URL path) and update SDK position
     // immediately so the progress bar doesn't snap back.
     if (currentTrack?.src) {
       seek(fraction * effectiveDuration);
     }
-    if (sdkReady) {
-      setSdkPosition(fraction * effectiveDuration);
-    }
+    setSdkPosition(fraction * effectiveDuration);
   };
 
   return (
@@ -254,6 +261,23 @@ export default function GlobalPlayer() {
               <span className="hidden sm:block w-10 text-xs tabular-nums text-muted-foreground">
                 {formatTime(effectiveDuration)}
               </span>
+            </div>
+
+            <div className="hidden items-center gap-2 md:flex">
+              <SpeakerLow className="h-4 w-4 text-muted-foreground" />
+              <Slider
+                value={[volume * 100]}
+                max={100}
+                step={1}
+                onValueChange={(v) => {
+                  const vol = v[0] / 100;
+                  setVolume(vol);
+                  spotifySetVolume(vol);
+                }}
+                className="w-24"
+                aria-label="Volume"
+              />
+              <SpeakerHigh className="h-4 w-4 text-muted-foreground" />
             </div>
 
             {currentTrack.spotifyUri && (
