@@ -180,6 +180,32 @@ with features, shown with preview + badge, excluded from invalid local
 re-analysis, and recommended with playback. The only outstanding item is
 the live Premium-API propagation (backend already wired + health-gated).
 
+## 0.13. Global Player Restored (2026-07-10) 🎵
+
+The **Global Player** feature (Spotify Web Playback SDK + persistent
+`<GlobalPlayer/>` bar, OAuth `CallbackPage`, `PlayerContext`, and the
+`musicAPI.spotifyAuth.*` / `musicAPI.stream.url()` API surface) was reverted
+by a prior AI pass and recovered from the dangling GP commit graph
+(`d693822`, built on `7d4d4bb`). Recovery was a `git checkout` of the GP
+trees, not a rebuild.
+
+| # | Area | Change | Resolution |
+|---|------|--------|-----------|
+| 1 | Backend | GP feature files (spotify_auth model, migration `011`, `user.py`, `database.py`, `routes/spotify.py` + `/music/stream`, `routes/music.py`, `alembic/env.py`) were missing from `cbbc81e`. | Restored from `d693822` via `git checkout`. `bcrypt==4.0.1` re-pinned from `9e66105` (verified: wrong-password login now returns **401**, not 500). |
+| 2 | Frontend | `App.jsx` (PlayerProvider + GlobalPlayer), `PlayerContext.jsx`, `GlobalPlayer.jsx`, `CallbackPage.jsx`, `api.js` (spotifyAuth + stream), GP-aware pages, `en/uk.json`, `index.css` missing. | Restored from `d693822`. |
+| 3 | Uncommitted source | `components/Reveal.jsx`, `utils/ThemeContext.jsx`, `utils/useChartTheme.js` were never committed (lived in a stash) yet the GP `DashboardPage`/`AnalyzePage`/`App.jsx` depend on them. | Recovered from `stash@{0}` ("baseline: model files, ThemeContext, Reveal, useChartTheme"). `npm run build` → 0 errors. |
+| 4 | Config | `docker-compose.yml` frontend needed **both** `80:80` and `3000:80` so Spotify OAuth redirect `http://127.0.0.1:3000/callback` hits a live server. `backend/.env` needed `SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/callback` (defaults to this in `database.py`). | Applied. `redirect_uri` stays `127.0.0.1:3000/callback` (registered in Spotify Dashboard; plain `http://localhost` is rejected). |
+| 5 | Play-button gating | Local uploads are deleted after analysis (`DELETE_LOCAL_AFTER_ANALYZE=True`) → no play button; only `source==='spotify'` tracks get ▶ (Web Playback SDK). | Confirmed in restored `DashboardPage`/`PlayerContext`/`GlobalPlayer`. |
+
+**Verification** (Docker stack, `docker compose up -d --build backend frontend`):
+- `GET http://localhost/login` → **200**
+- `GET http://127.0.0.1:3000/callback` → **200** (SPA fallback)
+- `POST /api/auth/login` (wrong password) → **401** (bcrypt fixed)
+- `frontend npm run build` → **0 errors**
+
+**Definition-of-done**: Global Player frontend + backend + config restored and
+committed as a single restore commit; both required URLs return 200.
+
 ## 0.10. Week 4 — Events Table Tuning (W4-8) 📊
 
 Added a composite B-tree index on `algorithm_events(algorithm, created_at)`

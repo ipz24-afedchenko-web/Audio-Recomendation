@@ -1,5 +1,6 @@
 import os
 import logging
+import mimetypes
 from typing import List
 from fastapi import (
     APIRouter,
@@ -10,7 +11,9 @@ from fastapi import (
     UploadFile,
     File,
     Form,
+    Request as _Request,
 )
+from fastapi.responses import StreamingResponse as _StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db, get_settings
@@ -327,3 +330,78 @@ async def auto_tag_file(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Auto-tagging failed: {str(e)}"
         )
+
+
+@router.get("/{music_id}/stream")
+def stream_audio(
+    music_id: int,
+    request: _Request,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    from app.models.music import SOURCE_SPOTIFY
+
+    music = db.query(Music).filter(Music.id == music_id).first()
+    if music is None:
+        raise HTTPException(404, "Track not found")
+    if music.user_id != current_user.id and not current_user.is_superuser:
+        raise HTTPException(403, "Forbidden")
+    if music.source == SOURCE_SPOTIFY or not music.file_path:
+        raise HTTPException(404, "No audio file for this track")
+
+    file_path = get_storage().get_local_path(music.file_path)
+    if not os.path.isfile(file_path):
+        logger.warning("File not found: %s", file_path)
+        raise HTTPException(404, "Audio file not found")
+
+    content_type = mimetypes.guess_type(file_path)[0] or "audio/mpeg"
+    file_size = os.path.getsize(file_path)
+    range_header = request.headers.get("range")
+
+    if range_header:
+        start_str, _, end_str = range_header.replace("bytes=", "").partition("-")
+        start = int(start_str) if start_str else 0
+        end = int(end_str) if end_str else file_size - 1
+        if start >= file_size:
+            raise HTTPException(416)
+        content_length = end - start + 1
+
+        def ranged():
+            with open(file_path, "rb") as f:
+                f.seek(start)
+                remaining = content_length
+                while remaining:
+                    chunk_size = min(65536, remaining)
+                    data = f.read(chunk_size)
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        return _StreamingResponse(
+            ranged(),
+            status_code=206,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Content-Type": content_type,
+                "Content-Length": str(content_length),
+                "Accept-Ranges": "bytes",
+            },
+        )
+
+    def full():
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(65536)
+                if not chunk:
+                    break
+                yield chunk
+
+    return _StreamingResponse(
+        full(),
+        media_type=content_type,
+        headers={
+            "Content-Length": str(file_size),
+            "Accept-Ranges": "bytes",
+        },
+    )

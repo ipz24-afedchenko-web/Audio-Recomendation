@@ -99,6 +99,19 @@ export const musicAPI = {
       await new Promise((r) => setTimeout(r, intervalMs));
     }
   },
+
+  /* Spotify OAuth + Web Playback SDK */
+  spotifyAuth: {
+    login: () => api.get('/spotify/auth/login'),
+    callback: (code) => api.post('/spotify/auth/callback', { code }),
+    status: () => api.get('/spotify/auth/status'),
+    playerToken: () => api.get('/spotify/auth/player-token'),
+  },
+
+  /* Audio stream URL builder */
+  stream: {
+    url: (musicId) => `${api.defaults.baseURL || '/api'}/music/${musicId}/stream`,
+  },
 };
 
 /* ── Analysis ── */

@@ -42,11 +42,15 @@ class Settings(BaseSettings):
     spotify_client_secret: str = ""
     spotify_enabled: bool = False
 
+    # OAuth callback for the global player feature.  The frontend opens
+    # the Spotify authorization URL and the redirect lands here.
+    spotify_redirect_uri: str = "http://127.0.0.1:3000/callback"
+
     # Custom-file lifecycle.  When True (default), a locally uploaded file
     # is deleted from storage as soon as librosa analysis completes — the
     # app keeps only the extracted features (free-hosting friendly).  Dev
     # can set False to retain files for debugging.
-    delete_local_after_analyze: bool = True
+    delete_local_after_analyze: bool = False
 
     # Used by validators — never expose this in /api/health.
     environment: str = "development"
