@@ -45,6 +45,7 @@ async def upload_music(
     genre: str = Form(None),
     external_id: str = Form(None),
     external_uri: str = Form(None),
+    cover_url: str = Form(None),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -127,6 +128,7 @@ async def upload_music(
         genre=genre,
         external_id=external_id or None,
         external_uri=external_uri or None,
+        cover_url=cover_url or None,
         file_path=file_path,
         file_size=file_size,
         file_hash=file_hash,
@@ -335,6 +337,7 @@ async def auto_tag_file(
                         top = results[0]
                         metadata["spotify_track_id"] = top.get("spotify_track_id")
                         metadata["external_uri"] = top.get("external_uri")
+                        metadata["cover_url"] = top.get("image_url")
             except Exception as se:  # noqa: BLE001
                 logger.info("Spotify auto-link skipped for %s: %s", filename, se)
 

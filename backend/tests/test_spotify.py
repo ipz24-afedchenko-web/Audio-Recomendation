@@ -125,6 +125,23 @@ def test_add_spotify_creates_ready_track(
     assert reanalyze.status_code == 409
 
 
+def test_add_spotify_persists_cover_url(
+    client: TestClient, auth_headers: dict, spotify_client_mock
+):
+    """The /add route must persist album.images[0].url as cover_url."""
+    with patch("app.routes.spotify.settings") as mock_settings:
+        mock_settings.spotify_enabled = True
+        r = client.post(
+            "/api/spotify/add",
+            json={"spotify_track_id": "abc123"},
+            headers=auth_headers,
+        )
+    assert r.status_code == 201, r.text
+    body = r.json()
+    # _fake_track() carries image_url="https://i.scdn.co/image/x"
+    assert body["cover_url"] == "https://i.scdn.co/image/x"
+
+
 def test_add_spotify_duplicate_returns_409(
     client: TestClient, auth_headers: dict, spotify_client_mock
 ):

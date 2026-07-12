@@ -61,8 +61,14 @@ def _analyze_spotify_preview_task(music_id: int, preview_url: str | None, title:
             
             resp_content = None
             
-            with open(f"/app/debug_task_{music_id}.txt", "w") as df:
-                df.write(f"title={repr(title)}, artist={repr(artist)}, preview={repr(preview_url)}")
+            # Debug dump to a temp file (the previous hardcoded "/app/" path
+            # does not exist on Windows and crashed the task there).
+            with tempfile.NamedTemporaryFile(
+                prefix=f"debug_task_{music_id}_", suffix=".txt", mode="w", delete=True
+            ) as df:
+                df.write(
+                    f"title={repr(title)}, artist={repr(artist)}, preview={repr(preview_url)}"
+                )
             
             if preview_url:
                 try:
@@ -267,6 +273,7 @@ def add_spotify_track(
         external_id=track_id,
         external_uri=track.get("external_uri"),
         preview_url=preview_url,
+        cover_url=track.get("image_url"),
         analysis_status="analyzing",
         user_id=current_user.id,
     )

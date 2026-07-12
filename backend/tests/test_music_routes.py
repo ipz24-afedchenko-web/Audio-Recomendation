@@ -142,3 +142,44 @@ def test_duplicate_orphan_file_is_removed(client, auth_headers, uploads_dir):
     assert r.status_code == 409
     files_after = set(_os.listdir(uploads_dir))
     assert files_after == files_before, "Duplicate upload should not leave a file on disk"
+
+
+def test_upload_persists_cover_url(client, auth_headers, uploads_dir):
+    """/upload must persist a forwarded cover_url on the Music row."""
+    content = _make_mp3_bytes(b"\x01" * 64)  # distinct bytes => distinct hash
+    files = {"file": ("with_cover.mp3", io.BytesIO(content), "audio/mpeg")}
+    data = {"title": "Covered", "cover_url": "https://i.scdn.co/image/c"}
+    r = client.post(
+        "/api/music/upload", files=files, data=data, headers=auth_headers
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["cover_url"] == "https://i.scdn.co/image/c"
+
+
+def test_auto_tag_returns_cover_url_from_spotify(client, auth_headers):
+    """/auto-tag must surface image_url from the Spotify search as cover_url."""
+    from unittest.mock import patch
+
+    fake_track = {
+        "spotify_track_id": "xyz",
+        "title": "Song",
+        "artist": "Art",
+        "external_uri": "spotify:track:xyz",
+        "image_url": "https://i.scdn.co/image/cover",
+    }
+    with patch("app.routes.music.get_ai_tagger") as mock_tagger, \
+         patch("app.services.spotify.get_spotify_client") as mock_spotify, \
+         patch("app.routes.music.get_settings") as mock_settings:
+        mock_tagger.return_value.auto_tag.return_value = {
+            "artist": "Art", "title": "Song", "genre": None, "album": None, "year": None,
+        }
+        mock_spotify.return_value.search.return_value = [fake_track]
+        mock_settings.return_value.spotify_enabled = True
+        r = client.post(
+            "/api/music/auto-tag",
+            data={"filename": "Art - Song.mp3"},
+            headers=auth_headers,
+        )
+    assert r.status_code == 200, r.text
+    meta = r.json()["metadata"]
+    assert meta["cover_url"] == "https://i.scdn.co/image/cover"

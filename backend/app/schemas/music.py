@@ -49,6 +49,7 @@ class MusicResponse(MusicBase):
     external_uri: Optional[str] = None
     preview_url: Optional[str] = None
     stream_url: Optional[str] = None
+    cover_url: Optional[str] = None
 
     file_path: Optional[str] = None
     file_size: Optional[int] = None
