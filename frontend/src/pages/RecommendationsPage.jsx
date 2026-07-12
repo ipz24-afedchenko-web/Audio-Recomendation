@@ -37,6 +37,7 @@ import {
   TableHead,
   TableCell,
 } from "../components/ui/table";
+import CoverArt from "../components/CoverArt";
 
 const ALGOS = [
   { value: "1", label: "Cosine similarity" },
@@ -279,8 +280,8 @@ export default function RecommendationsPage() {
               m.spotifyTrackId ||
               m.external_id
             );
-            // Spotify album art: reconstruct from external_id via embed thumbnail
-            const coverUrl = m.image_url || null;
+            // Spotify album art: read the persisted cover_url from the Music row
+            const coverUrl = m.cover_url || null;
             return (
               <motion.div
                 key={m.id || i}
@@ -291,19 +292,11 @@ export default function RecommendationsPage() {
                 <Card className="flex h-full flex-col overflow-hidden">
                   {/* Header: cover art + meta */}
                   <div className="flex items-start gap-3 p-4">
-                    {/* Album art placeholder */}
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground overflow-hidden">
-                      {coverUrl ? (
-                        <img
-                          src={coverUrl}
-                          alt=""
-                          className="h-full w-full object-cover"
-                          onError={(e) => (e.currentTarget.style.display = "none")}
-                        />
-                      ) : (
-                        <span className="text-lg">🎵</span>
-                      )}
-                    </span>
+                    <CoverArt
+                      src={coverUrl}
+                      className="h-11 w-11 rounded-lg"
+                      fallback={<span className="text-lg">🎵</span>}
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-medium leading-snug">
                         {m.title || t("common.unknown")}
