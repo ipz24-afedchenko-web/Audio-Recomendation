@@ -8,7 +8,6 @@ import {
   Play,
   Sparkle,
   Spinner,
-  MusicNotes,
   Gauge,
   Waves,
   SpeakerHigh,
@@ -24,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import StatusBadge from "../components/StatusBadge";
+import CoverArt from "../components/CoverArt";
 
 const clamp01 = (v) => {
   const n = Number(v);
@@ -220,9 +220,7 @@ export default function AnalyzePage() {
         className="flex flex-wrap items-center justify-between gap-4"
       >
         <div className="flex items-center gap-4">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-secondary text-secondary-foreground">
-            <MusicNotes className="h-7 w-7" weight="fill" />
-          </span>
+          <CoverArt src={track.cover_url} className="h-14 w-14 rounded-2xl" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{track.title}</h1>
             <p className="text-sm text-muted-foreground">{track.artist}</p>
