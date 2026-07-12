@@ -76,7 +76,7 @@ function FileTab() {
   const { toast } = useToast();
   const [file, setFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
-  const [form, setForm] = useState({ title: "", artist: "", album: "", genre: "", spotifyTrackId: "", spotifyExternalUri: "" });
+  const [form, setForm] = useState({ title: "", artist: "", album: "", genre: "", spotifyTrackId: "", spotifyExternalUri: "", coverUrl: "" });
   const [uploading, setUploading] = useState(false);
   const [autoTagging, setAutoTagging] = useState(false);
 
@@ -105,6 +105,7 @@ function FileTab() {
         genre: d.genre || f0.genre,
         spotifyTrackId: d.spotify_track_id || f0.spotifyTrackId,
         spotifyExternalUri: d.external_uri || f0.spotifyExternalUri,
+        coverUrl: d.cover_url || f0.coverUrl,
       }));
       toast({ title: t("upload.aiTag"), description: t("upload.autoFillRunning") });
     } catch {
@@ -125,6 +126,9 @@ function FileTab() {
       fd.append("artist", form.artist);
       fd.append("album", form.album);
       fd.append("genre", form.genre);
+      if (form.coverUrl) {
+        fd.append("cover_url", form.coverUrl);
+      }
       if (form.spotifyTrackId) {
         fd.append("external_id", form.spotifyTrackId);
         fd.append("external_uri", form.spotifyExternalUri || `spotify:track:${form.spotifyTrackId}`);
