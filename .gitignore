@@ -70,11 +70,14 @@ htmlcov/
 .pytest_cache/
 .tox/
 
-# ML models
+# ML models (artefacts)
 *.pkl
 *.h5
 *.joblib
-models/
+backend/models/
+
+# SQLAlchemy models are source code, not artefacts
+!backend/app/models/
 
 # Audio files (large)
 *.mp3
