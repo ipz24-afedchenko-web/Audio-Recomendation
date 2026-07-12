@@ -65,6 +65,7 @@ export function PlayerProvider({ children }) {
       spotifyUri: track.spotify_track_id || track.spotifyTrackId || track.external_id || null,
       spotifyUrl: track.spotify_url || track.external_url || null,
       previewUrl: track.preview_url || null,
+      coverUrl: track.cover_url || track.image_url || null,
     };
     setCurrentTrack(next);
     setIsPlaying(true);

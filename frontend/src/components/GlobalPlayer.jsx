@@ -12,6 +12,7 @@ import {
   ArrowSquareOut,
 } from "@phosphor-icons/react";
 import { usePlayer } from "../context/PlayerContext";
+import CoverArt from "./CoverArt";
 import { Slider } from "./ui/slider";
 import { musicAPI } from "../services/api";
 import {
@@ -220,9 +221,11 @@ export default function GlobalPlayer() {
         {/* Mobile: Top Row (Track Info + Play + Close) / Desktop: Left Side (Track Info) */}
         <div className="flex items-center justify-between gap-2 md:w-[30%]">
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
-              {isSpotify ? <SpotifyLogo className="h-5 w-5" /> : <MusicNote className="h-5 w-5" />}
-            </span>
+            <CoverArt
+              src={currentTrack?.coverUrl}
+              className="h-10 w-10 rounded-lg"
+              fallback={isSpotify ? <SpotifyLogo className="h-5 w-5" /> : <MusicNote className="h-5 w-5" />}
+            />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium text-foreground">
                 {currentTrack.title || "Unknown"}
