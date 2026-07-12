@@ -31,6 +31,7 @@ import {
   DialogClose,
 } from "../components/ui/dialog";
 import StatusBadge from "../components/StatusBadge";
+import CoverArt from "../components/CoverArt";
 
 // ── Debounce hook ─────────────────────────────────────────────────────────────
 function useDebounce(value, delay = 300) {
@@ -60,9 +61,7 @@ function TrackCard({ track, onAnalyze, onDelete, onPlay, analyzingId, selected, 
           {selected ? <CheckSquare className="h-4 w-4 text-primary" weight="fill" /> : <Square className="h-4 w-4" />}
         </button>
 
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-foreground">
-          <MusicNotes className="h-5 w-5" weight="fill" />
-        </span>
+        <CoverArt src={track.cover_url} className="h-11 w-11 rounded-lg" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-medium text-foreground">{track.title || "Untitled"}</p>
           <p className="truncate text-sm text-muted-foreground">{track.artist || "Unknown artist"}</p>
