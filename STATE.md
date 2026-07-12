@@ -622,6 +622,7 @@ npm run dev
 | **updated_at triggers** | ✅ Complete | 100% | **W4-5: migration 008 — PG `set_updated_at()` fn + BEFORE UPDATE triggers on `users`/`music`; SQLite keeps ORM `onupdate`** |
 | **Spotify player SDK** | ✅ Complete | 100% | **W5-1: Web Playback SDK singleton, GlobalPlayer SDK controls, `/settings` page for OAuth, Premium message + deep link, removed embed iframe** |
 | **AI + Spotify linking** | ✅ Complete | 100% | **W5-2: auto-tag endpoint now searches Spotify, returns `spotify_track_id`; upload stores `external_id`/`external_uri` for local files** |
+| **Track cover art** | ✅ Complete | 100% | **`cover_url` column (migration 013) + `MusicResponse`; Spotify `/add` and `/auto-tag`→`/upload` persist it from `album.images[0].url`; shared `CoverArt` component renders it on Dashboard / Analyze / Recommendations / GlobalPlayer; `PlayerContext.coverUrl` feeds the player; `UploadPage` forwards `cover_url` from auto-tag** |
 
 ---
 
@@ -700,6 +701,7 @@ backlog.  Each item references the original audit number for traceability.
 | DB1 | **`audio_features.music_id` FK lacks `ON DELETE CASCADE`** | ✅ **Done** — Added `ondelete="CASCADE"` to `audio_features.music_id` + both recommendation FKs in model + migration 004. |
 | DB2 | **Missing indices on `Recommendation.source_music_id` / `recommended_music_id`** | ✅ **Done** — `ix_recommendations_source` + `ix_recommendations_recommended` added in migration 004. |
 | DB3 | **`Music`/`User` `updated_at` uses SQLAlchemy-side `onupdate`** | Deferred — DB triggers add complexity (SQLite vs PG syntax) for marginal gain since the app always uses the ORM. |
+| DB4 | **`test_add_spotify_creates_ready_track` fails in offline / Windows CI** | ⚠️ **Pre-existing, environment-dependent** — `_analyze_spotify_preview_task` requires live HTTP to Spotify/iTunes preview endpoints to flip `analysis_status` → `ready`. The hardcoded `/app/debug_task_*.txt` path was replaced with a `tempfile.NamedTemporaryFile` (Windows-compat) in this cycle, but the test still needs network to reach `ready`. Not related to cover art. 222/223 backend tests pass in this env; this one is the lone offline failure. |
 
 ### 11.6 Week 4 Plan 🗓️ (carried-forward backlog)
 
