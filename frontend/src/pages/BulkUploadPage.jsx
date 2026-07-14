@@ -36,6 +36,7 @@ export default function BulkUploadPage() {
   const [dragActive, setDragActive] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [doneCount, setDoneCount] = useState(0);
   const inputRef = useRef(null);
 
   const addFiles = useCallback((fileList) => {
@@ -47,6 +48,9 @@ export default function BulkUploadPage() {
       artist: "",
       album: "",
       genre: "",
+      spotifyTrackId: "",
+      spotifyExternalUri: "",
+      coverUrl: "",
       status: "pending",
     }));
     setItems((prev) => [...prev, ...next]);
@@ -59,33 +63,66 @@ export default function BulkUploadPage() {
 
   const autoTagAll = async () => {
     setBusy(true);
+    let ok = 0;
+    let failed = 0;
+    let firstErrorMsg = null;
     for (const it of items) {
       if (it.status !== "pending") continue;
       update(it.id, { status: "processing" });
       try {
         const fd = new FormData();
-        fd.append("file", it.file);
+        fd.append("filename", it.file.name);
         const res = await musicAPI.autoTag(fd);
-        const d = res.data || {};
+        const d = res.data?.metadata || {};
         update(it.id, {
           title: d.title || it.title,
           artist: d.artist || it.artist,
           album: d.album || it.album,
           genre: d.genre || it.genre,
+          spotifyTrackId: d.spotify_track_id || "",
+          spotifyExternalUri: d.external_uri || "",
+          coverUrl: d.cover_url || "",
           status: "pending",
         });
-      } catch {
-        update(it.id, { status: "error" });
+        ok += 1;
+      } catch (err) {
+        failed += 1;
+        // Pull the most useful message out of the backend payload.
+        // FastAPI returns `detail` (string for 429/500, array for 422).
+        const body = err.response?.data;
+        const raw = body?.detail || body?.message || body?.error || err?.message || "Unknown error";
+        const msg = typeof raw === "string" ? raw : JSON.stringify(raw);
+        if (!firstErrorMsg) firstErrorMsg = msg;
+        // Log the exact backend response so rate-limit (HTTP 429) / validation
+        // errors are visible instead of a silent "Failed".
+        console.error(
+          `[autoTagAll] Failed to tag "${it.title}" (HTTP ${err.response?.status ?? "n/a"}):`,
+          body ?? err
+        );
+        update(it.id, { status: "error", errorMsg: msg });
       }
+      // Strict 1 s throttle: one request at a time with a gap between calls
+      // so the backend's Gemini / MusicBrainz rate limit (HTTP 429) isn't hit.
+      await new Promise((r) => setTimeout(r, 1000));
     }
     setBusy(false);
-    toast({ title: t("bulk.autoTagAll") });
+    console.info(`[autoTagAll] Done — ${ok} tagged, ${failed} failed.`);
+    if (failed > 0) {
+      toast({
+        variant: "destructive",
+        title: t("bulk.autoTagFailed", { count: failed }),
+        description: firstErrorMsg || undefined,
+      });
+    } else {
+      toast({ title: t("bulk.autoTagAll") });
+    }
   };
 
   const uploadAll = async () => {
     if (items.length === 0) return;
     setBusy(true);
     setProgress(0);
+    setDoneCount(0);
     const chunks = [];
     for (let i = 0; i < items.length; i += 3) chunks.push(items.slice(i, i + 3));
 
@@ -101,12 +138,20 @@ export default function BulkUploadPage() {
             fd.append("artist", it.artist);
             fd.append("album", it.album);
             fd.append("genre", it.genre);
+            if (it.coverUrl) {
+              fd.append("cover_url", it.coverUrl);
+            }
+            if (it.spotifyTrackId) {
+              fd.append("external_id", it.spotifyTrackId);
+              fd.append("external_uri", it.spotifyExternalUri || `spotify:track:${it.spotifyTrackId}`);
+            }
             await musicAPI.upload(fd);
             update(it.id, { status: "ready" });
           } catch {
             update(it.id, { status: "error" });
           } finally {
             done += 1;
+            setDoneCount(done);
             setProgress(Math.round((done / items.length) * 100));
           }
         })
@@ -176,7 +221,7 @@ export default function BulkUploadPage() {
                     <TableHead className="w-[22%]">{t("upload.artistField")}</TableHead>
                     <TableHead className="w-[18%]">{t("upload.albumField")}</TableHead>
                     <TableHead className="w-[14%]">{t("upload.genreField")}</TableHead>
-                    <TableHead className="w-[10%]">{t("bulk.statusPending")}</TableHead>
+                    <TableHead className="w-[10%]">{t("bulk.pending")}</TableHead>
                     <TableHead className="w-[8%]" />
                   </TableRow>
                 </TableHeader>
@@ -215,9 +260,21 @@ export default function BulkUploadPage() {
                           />
                         </TableCell>
                         <TableCell>
-                          <Badge variant={conf.variant} className="gap-1">
-                            {Icon && <Icon className="h-3 w-3 animate-spin" />}
-                            {t(conf.label)}
+                          <Badge
+                            variant={conf.variant}
+                            className="max-w-[180px] gap-1 truncate"
+                            title={it.errorMsg || undefined}
+                          >
+                            {Icon && (
+                              <Icon
+                                className={
+                                  it.status === "processing"
+                                    ? "h-3 w-3 animate-spin"
+                                    : "h-3 w-3"
+                                }
+                              />
+                            )}
+                            {it.status === "error" && it.errorMsg ? it.errorMsg : t(conf.label)}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -239,7 +296,7 @@ export default function BulkUploadPage() {
             <div className="mt-4 flex flex-wrap gap-2">
               <Button onClick={uploadAll} disabled={busy} className="gap-2">
                 {busy ? <Spinner className="h-4 w-4 animate-spin" /> : <UploadSimple className="h-4 w-4" />}
-                {busy ? t("bulk.uploading", { done, total: items.length }) : t("bulk.uploadAll")}
+                {busy ? t("bulk.uploading", { done: doneCount, total: items.length }) : t("bulk.uploadAll")}
               </Button>
               <Button variant="outline" onClick={autoTagAll} disabled={busy} className="gap-2">
                 <Sparkle className="h-4 w-4" />

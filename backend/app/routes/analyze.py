@@ -8,20 +8,21 @@ from app.models.music import Music, SOURCE_SPOTIFY
 from app.models.audio_features import AudioFeatures
 from app.schemas.audio_features import AudioFeaturesResponse
 from app.utils.auth import get_current_active_user
+from app.utils.slug import resolve_music
 from app.services.audio_analyzer import run_analysis as run_audio_analysis
 
 router = APIRouter(prefix="/api/analyze", tags=["analysis"])
 logger = logging.getLogger(__name__)
 
 
-@router.post("/{music_id}", response_model=AudioFeaturesResponse)
+@router.post("/{id_or_slug}", response_model=AudioFeaturesResponse)
 async def analyze_music(
-    music_id: int,
+    id_or_slug: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     """
-    Manually trigger (or retry) audio analysis for a track.
+    Manually trigger (or retry) audio analysis for a track by ID or slug.
 
     This endpoint is what powers the "Analyze" button on the dashboard.
     After upload, the same logic runs as a BackgroundTask — this route
@@ -31,18 +32,9 @@ async def analyze_music(
     The actual work is delegated to ``services.audio_analyzer.run_analysis``
     so upload and manual retries share the exact same code path.
     """
-    # 1. Authorization (404 before 403 — standard REST).
-    music = db.query(Music).filter(Music.id == music_id).first()
-    if not music:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Music not found",
-        )
-    if music.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to analyze this music",
-        )
+    # 1. Authorization (404 before 403 — standard REST).  Accepts either a
+    #    numeric ID or a per-user slug.
+    music = resolve_music(db, current_user, id_or_slug)
 
     # 2. Catalog tracks (e.g. Spotify) already carry features from the
     #    source API — there is no local file to analyze.  Refuse the
@@ -59,7 +51,7 @@ async def analyze_music(
     # caller gets the AudioFeatures back in the response).  The
     # background-task path is used by the upload route for the common
     # case of fresh uploads.
-    success = run_audio_analysis(music_id)
+    success = run_audio_analysis(music.id)
 
     if not success:
         # Re-fetch in case the runner just wrote an error message we
@@ -75,7 +67,7 @@ async def analyze_music(
 
     features = (
         db.query(AudioFeatures)
-        .filter(AudioFeatures.music_id == music_id)
+        .filter(AudioFeatures.music_id == music.id)
         .first()
     )
     if not features:
@@ -86,37 +78,23 @@ async def analyze_music(
     return features
 
 
-@router.get("/features/{music_id}", response_model=AudioFeaturesResponse)
+@router.get("/features/{id_or_slug}", response_model=AudioFeaturesResponse)
 def get_audio_features(
-    music_id: int,
+    id_or_slug: str,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """
-    Get audio features for a music track.
-
-    - **music_id**: ID of the music track
+    Get audio features for a music track by ID or slug.
 
     Returns audio features if the track has been analyzed.
     """
-    # Get music record
-    music = db.query(Music).filter(Music.id == music_id).first()
-    if not music:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Music not found"
-        )
-
-    # Check ownership
-    if music.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this music's features"
-        )
+    # Get music record + enforce ownership (404 before 403).
+    music = resolve_music(db, current_user, id_or_slug)
 
     # Get features
     features = db.query(AudioFeatures).filter(
-        AudioFeatures.music_id == music_id
+        AudioFeatures.music_id == music.id
     ).first()
 
     if not features:

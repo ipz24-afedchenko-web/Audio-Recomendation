@@ -23,13 +23,20 @@ from app.schemas.music import (
     SpotifySearchResult,
     SpotifyAddRequest,
     SpotifyPlayRequest,
+    SpotifyPlaylistRequest,
+    SpotifyPlaylistImportResult,
+    SpotifyPlaylistTrackResult,
 )
 from app.utils.auth import get_current_active_user
+from app.utils.slug import generate_unique_slug
+from app.models.folder import Folder
 from app.models.user import User
 from app.services.spotify import (
     SPOTIFY_API_BASE,
     SpotifyClient,
     SpotifyError,
+    SpotifyNotFoundError,
+    SpotifyForbiddenError,
     get_spotify_client,
     is_spotify_healthy,
     mark_spotify_unhealthy,
@@ -44,7 +51,7 @@ router = APIRouter(prefix="/api/spotify", tags=["spotify"])
 settings = get_settings()
 logger = logging.getLogger(__name__)
 
-def _analyze_spotify_preview_task(music_id: int, preview_url: str | None, title: str = "", artist: str = ""):
+def _analyze_spotify_preview_task(music_id: int, preview_url: str | None, title: str = "", artist: str = "", artist_ids: list | None = None):
     from app.database import SessionLocal
     from app.models.music import Music, ANALYSIS_STATUS_READY, ANALYSIS_STATUS_ERROR
     from app.services.audio_analyzer import AudioAnalyzer
@@ -55,14 +62,53 @@ def _analyze_spotify_preview_task(music_id: int, preview_url: str | None, title:
         if not music or not music.audio_features:
             return
             
+        # --- GENRE DETECTION ---
+        genre = None
+        if title and artist:
+            try:
+                from app.services.ai_tagger import get_ai_tagger
+                tagger = get_ai_tagger()
+                genre = tagger.fetch_genre_with_ai(
+                    artist=artist,
+                    title=title,
+                    allowed_genres=None,
+                )
+            except Exception:
+                pass
+        if not genre and artist_ids:
+            try:
+                from app.services.spotify import SpotifyClient
+                from app.models.user import User
+                # Need token to fetch artist. We can use client credentials.
+                client = SpotifyClient()
+                artist_data = client.get_artist(artist_ids[0])
+                spotify_genres = artist_data.get("genres", [])
+                if spotify_genres:
+                    genre = spotify_genres[0].title()
+            except Exception:
+                pass
+        if not genre:
+            try:
+                from app.services.genre_classifier import GenreClassifier
+                classifier = GenreClassifier()
+                classifier.load_models()
+                result = classifier.predict(db, music.id)
+                if result and result.get("predicted_genre"):
+                    genre = result["predicted_genre"]
+            except Exception:
+                pass
+        if genre:
+            from app.utils.audio_utils import genre_to_title_case
+            music.genre = genre_to_title_case(genre)
+        
+        # --- AUDIO ANALYSIS ---
         try:
             import httpx
             import tempfile
             
             resp_content = None
             
-            # Debug dump to a temp file (the previous hardcoded "/app/" path
-            # does not exist on Windows and crashed the task there).
+            # Debug dump to a temp file
             with tempfile.NamedTemporaryFile(
                 prefix=f"debug_task_{music_id}_", suffix=".txt", mode="w", delete=True
             ) as df:
@@ -72,8 +118,8 @@ def _analyze_spotify_preview_task(music_id: int, preview_url: str | None, title:
             
             if preview_url:
                 try:
-                    with httpx.Client(timeout=10) as client:
-                        resp = client.get(preview_url)
+                    with httpx.Client(timeout=10) as http_client:
+                        resp = http_client.get(preview_url)
                         resp.raise_for_status()
                         resp_content = resp.content
                 except Exception as e:
@@ -85,15 +131,15 @@ def _analyze_spotify_preview_task(music_id: int, preview_url: str | None, title:
                     query = urllib.parse.quote_plus(f"{title} {artist}")
                     itunes_url = f"https://itunes.apple.com/search?term={query}&media=music&limit=1"
                     logger.info("Trying iTunes fallback: %s", itunes_url)
-                    with httpx.Client(timeout=10) as client:
-                        itunes_resp = client.get(itunes_url)
+                    with httpx.Client(timeout=10) as http_client:
+                        itunes_resp = http_client.get(itunes_url)
                         itunes_resp.raise_for_status()
                         data = itunes_resp.json()
                         logger.info("iTunes results count: %d", len(data.get("results", [])))
                         if data.get("results") and data["results"][0].get("previewUrl"):
                             fallback_url = data["results"][0]["previewUrl"]
                             logger.info("Downloading iTunes preview: %s", fallback_url)
-                            resp2 = client.get(fallback_url)
+                            resp2 = http_client.get(fallback_url)
                             resp2.raise_for_status()
                             resp_content = resp2.content
                         else:
@@ -263,6 +309,24 @@ def add_spotify_track(
 
     preview_url = track.get("preview_url")
 
+    # 3b. Validate the optional destination folder (owned by this user)
+    #     and generate a per-user-unique slug before persisting.
+    folder_id = payload.folder_id
+    if folder_id is not None:
+        folder = (
+            db.query(Folder)
+            .filter(Folder.id == folder_id, Folder.user_id == current_user.id)
+            .first()
+        )
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found",
+            )
+    slug = generate_unique_slug(
+        db, current_user.id, track.get("artist"), track.get("title")
+    )
+
     # 3. Persist Music row (no file_path, no hash).
     db_music = Music(
         title=track.get("title") or "Unknown",
@@ -274,6 +338,8 @@ def add_spotify_track(
         external_uri=track.get("external_uri"),
         preview_url=preview_url,
         cover_url=track.get("image_url"),
+        slug=slug,
+        folder_id=folder_id,
         analysis_status="analyzing",
         user_id=current_user.id,
     )
@@ -285,18 +351,326 @@ def add_spotify_track(
     db_features = AudioFeatures(music_id=db_music.id, **features)
     db.add(db_features)
 
+    db.flush()  # assign PK for the AudioFeatures FK used by GenreClassifier
+
+    # 5. Genre prediction: Gemini AI → Spotify artist → GenreClassifier.
+    #    Must run *after* AudioFeatures exists because GenreClassifier.predict
+    #    queries AudioFeatures by music_id.
+    genre = None
+    track_title = track.get("title") or ""
+    track_artist = track.get("artist") or ""
+    if track_title and track_artist:
+        try:
+            from app.services.ai_tagger import get_ai_tagger
+            tagger = get_ai_tagger()
+            genre = tagger.fetch_genre_with_ai(
+                artist=track_artist,
+                title=track_title,
+                allowed_genres=None,  # uses GENRE_VOCABULARY
+            )
+            if genre:
+                logger.info(
+                    "Gemini genre predicted for music_id=%s: %s",
+                    db_music.id, genre,
+                )
+        except Exception:
+            logger.info(
+                "Gemini genre prediction unavailable for music_id=%s",
+                db_music.id,
+            )
+    if not genre:
+        artist_ids = track.get("artist_ids", [])
+        if artist_ids:
+            try:
+                artist = client.get_artist(artist_ids[0])
+                spotify_genres = artist.get("genres", [])
+                if spotify_genres:
+                    genre = spotify_genres[0].title()
+            except SpotifyError:
+                logger.info("Artist genre lookup failed for %s", artist_ids[0])
+    if not genre:
+        try:
+            from app.services.genre_classifier import GenreClassifier
+            classifier = GenreClassifier()
+            classifier.load_models()
+            result = classifier.predict(db, db_music.id)
+            if result and result.get("predicted_genre"):
+                genre = result["predicted_genre"]
+        except Exception:
+            logger.info("GenreClassifier predict failed for music_id=%s", db_music.id)
+    if genre:
+        from app.utils.audio_utils import genre_to_title_case
+        db_music.genre = genre_to_title_case(genre)
+
     db.commit()
     db.refresh(db_music)
     
     artist_name = track.get("artist") or ""
     title = track.get("title") or ""
     background_tasks.add_task(_analyze_spotify_preview_task, db_music.id, preview_url, title, artist_name)
-        
+
     logger.info(
         "Spotify track added: user_id=%s music_id=%s track=%s",
         current_user.id, db_music.id, track_id,
     )
     return db_music
+
+
+def _parse_playlist_id(raw: str) -> str:
+    """Extract a Spotify playlist ID from a URL or return the bare ID.
+
+    Handles the following shapes:
+    - https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M?si=...
+    - spotify:playlist:37i9dQZF1DXcBWIGoYBM5M
+    - 37i9dQZF1DXcBWIGoYBM5M
+    """
+    raw = raw.strip()
+    # Strip query-string and hash.
+    raw = raw.split("?")[0].split("#")[0]
+    # URI form: spotify:playlist:<id>
+    if raw.startswith("spotify:playlist:"):
+        return raw.split("spotify:playlist:", 1)[1].strip()
+    # URL form: .../playlist/<id>[/...]
+    if "/playlist/" in raw:
+        return raw.split("/playlist/", 1)[1].split("/")[0].strip()
+    # Assume bare ID.
+    return raw
+
+
+@router.post(
+    "/playlist",
+    response_model=SpotifyPlaylistImportResult,
+    status_code=status.HTTP_200_OK,
+)
+def import_spotify_playlist(
+    payload: SpotifyPlaylistRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """Import all tracks from a Spotify playlist.
+
+    Each track goes through the same pipeline as ``POST /api/spotify/add``:
+    AudioFeatures are synthesised (Spotify deprecated the audio-features
+    endpoint), then genre is predicted via Gemini AI → Spotify artist →
+    GenreClassifier, and a background task refines timbre features from
+    the 30-second preview (or iTunes fallback).
+
+    Duplicate tracks (already in the user's library) are counted but not
+    re-added.  The response summary lists every track with its outcome so
+    the frontend can show a progress breakdown.
+    """
+    client = _require_spotify()
+
+    try:
+        playlist_id = _parse_playlist_id(payload.playlist_url)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not parse a Spotify playlist ID from the provided value",
+        )
+
+    max_tracks = min(max(payload.max_tracks, 1), 2000)
+
+    # 1. Fetch playlist metadata + track list.
+    #    Strategy: try Client Credentials first (works for all public playlists).
+    #    On 404 or 403, fall back to the user's personal OAuth token so that their
+    #    private playlists also work (requires Spotify account connected in Settings).
+    playlist = None
+    try:
+        playlist = client.get_playlist(playlist_id, max_tracks=max_tracks)
+    except (SpotifyNotFoundError, SpotifyForbiddenError):
+        # 404 or 403 from Client Credentials — could be a private playlist.
+        # Try the user's personal OAuth token.
+        user_auth = (
+            db.query(SpotifyAuthModel)
+            .filter(SpotifyAuthModel.user_id == current_user.id)
+            .first()
+        )
+        if user_auth is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=(
+                    "Playlist not found. If this is a private playlist, connect your "
+                    "Spotify account in Settings so we can access it with your personal token."
+                ),
+            )
+        # Ensure the user token is fresh.
+        try:
+            user_token = _ensure_token(user_auth, db)
+        except HTTPException:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Your Spotify token could not be refreshed. Please reconnect in Settings.",
+            )
+        try:
+            playlist = client.get_playlist(
+                playlist_id, max_tracks=max_tracks, token_override=user_token
+            )
+            logger.info(
+                "Playlist import: private playlist fetched via user token for user_id=%s",
+                current_user.id,
+            )
+        except SpotifyForbiddenError as e_forb:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(e_forb),
+            )
+        except SpotifyError as e2:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Spotify playlist fetch failed (even with your personal token): {e2}",
+            )
+    except SpotifyError as e:
+        mark_spotify_unhealthy()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Spotify playlist fetch failed: {e}",
+        )
+
+    # 2. Validate optional destination folder (same check as /add).
+    folder_id = payload.folder_id
+    if folder_id is not None:
+        folder = (
+            db.query(Folder)
+            .filter(Folder.id == folder_id, Folder.user_id == current_user.id)
+            .first()
+        )
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found",
+            )
+
+    track_results: list[SpotifyPlaylistTrackResult] = []
+
+    # 3. Import each track through the single-track pipeline.
+    for track in playlist["tracks"]:
+        track_id = track["spotify_track_id"]
+        track_title = track.get("title") or "Unknown"
+        track_artist = track.get("artist") or ""
+
+        # 3a. Duplicate check.
+        existing = (
+            db.query(Music)
+            .filter(
+                Music.user_id == current_user.id,
+                Music.source == SOURCE_SPOTIFY,
+                Music.external_id == track_id,
+            )
+            .first()
+        )
+        if existing is not None:
+            track_results.append(
+                SpotifyPlaylistTrackResult(
+                    spotify_track_id=track_id,
+                    title=track_title,
+                    artist=track_artist or None,
+                    status="duplicate",
+                    music_id=existing.id,
+                )
+            )
+            continue
+
+        # 3b. Audio features (best-effort).
+        try:
+            raw_features = client.get_audio_features(track_id) or {}
+        except SpotifyError:
+            raw_features = _synthesize_features(track)
+
+        # 3c. Persist Music row.
+        try:
+            slug = generate_unique_slug(
+                db, current_user.id, track_artist, track_title
+            )
+            preview_url = track.get("preview_url")
+            db_music = Music(
+                title=track_title,
+                artist=track_artist or None,
+                album=track.get("album"),
+                duration=(track.get("duration_ms") or 0) / 1000.0,
+                source=SOURCE_SPOTIFY,
+                external_id=track_id,
+                external_uri=track.get("external_uri"),
+                preview_url=preview_url,
+                cover_url=track.get("image_url"),
+                slug=slug,
+                folder_id=folder_id,
+                analysis_status="analyzing",
+                user_id=current_user.id,
+            )
+            db.add(db_music)
+            db.flush()  # assign PK
+
+            # 3d. AudioFeatures.
+            features = client.map_to_features(track, raw_features)
+            db_features = AudioFeatures(music_id=db_music.id, **features)
+            db.add(db_features)
+            db.flush()  # needed before GenreClassifier.predict
+
+            # 3e. Genre prediction is now deferred to the background task to prevent API timeout.
+            db.commit()
+
+            db.commit()
+            db.refresh(db_music)
+
+            # 3f. Background audio-preview analysis (non-blocking).
+            background_tasks.add_task(
+                _analyze_spotify_preview_task,
+                db_music.id,
+                preview_url,
+                track_title,
+                track_artist,
+                track.get("artist_ids", []),
+            )
+
+            track_results.append(
+                SpotifyPlaylistTrackResult(
+                    spotify_track_id=track_id,
+                    title=track_title,
+                    artist=track_artist or None,
+                    status="added",
+                    music_id=db_music.id,
+                )
+            )
+            logger.info(
+                "Playlist import: added music_id=%s track=%s for user_id=%s",
+                db_music.id, track_id, current_user.id,
+            )
+
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "Playlist import: failed to add track=%s: %s", track_id, exc
+            )
+            track_results.append(
+                SpotifyPlaylistTrackResult(
+                    spotify_track_id=track_id,
+                    title=track_title,
+                    artist=track_artist or None,
+                    status="error",
+                    error=str(exc)[:200],
+                )
+            )
+
+    added = sum(1 for r in track_results if r.status == "added")
+    duplicates = sum(1 for r in track_results if r.status == "duplicate")
+    errors = sum(1 for r in track_results if r.status == "error")
+
+    logger.info(
+        "Playlist import complete: playlist_id=%s user_id=%s added=%s dupes=%s errors=%s",
+        playlist_id, current_user.id, added, duplicates, errors,
+    )
+
+    return SpotifyPlaylistImportResult(
+        playlist_name=playlist.get("name") or playlist_id,
+        playlist_image=playlist.get("image_url"),
+        total_in_playlist=playlist.get("total", 0),
+        added=added,
+        duplicates=duplicates,
+        errors=errors,
+        tracks=track_results,
+    )
 
 
 _SPOTIFY_AUTH_SCOPES = (
@@ -305,7 +679,9 @@ _SPOTIFY_AUTH_SCOPES = (
     "user-read-private "
     "user-read-playback-state "
     "user-modify-playback-state "
-    "user-read-currently-playing"
+    "user-read-currently-playing "
+    "playlist-read-private "
+    "playlist-read-collaborative"
 )
 
 
@@ -343,7 +719,7 @@ def spotify_auth_callback(
         "client_secret": settings.spotify_client_secret,
     }
 
-    resp = _httpx.post(token_url, data=data, timeout=10)
+    resp = httpx.post(token_url, data=data, timeout=10)
     if resp.status_code != 200:
         logger.error("Spotify token exchange failed: %s", resp.text)
         raise HTTPException(
@@ -432,7 +808,7 @@ def spotify_auth_player_token(
         "client_secret": settings.spotify_client_secret,
     }
 
-    resp = _httpx.post(token_url, data=data, timeout=10)
+    resp = httpx.post(token_url, data=data, timeout=10)
     if resp.status_code != 200:
         logger.error("Spotify token refresh failed: %s", resp.text)
         raise HTTPException(
@@ -463,7 +839,7 @@ def _ensure_token(auth, db) -> str:
         "client_id": settings.spotify_client_id,
         "client_secret": settings.spotify_client_secret,
     }
-    resp = _httpx.post(token_url, data=data, timeout=10)
+    resp = httpx.post(token_url, data=data, timeout=10)
     if resp.status_code != 200:
         logger.error("Spotify token refresh failed: %s", resp.text)
         raise HTTPException(

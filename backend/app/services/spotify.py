@@ -23,6 +23,22 @@ class SpotifyError(Exception):
     """Raised for Spotify API / auth failures."""
 
 
+class SpotifyNotFoundError(SpotifyError):
+    """Raised specifically when the Spotify API returns 404.
+
+    The route layer catches this to attempt a fallback with the user's
+    personal OAuth token before giving up.
+    """
+
+
+class SpotifyForbiddenError(SpotifyError):
+    """Raised when the Spotify API returns 403 Forbidden.
+    
+    Usually implies the OAuth token is missing the required scopes
+    (e.g., playlist-read-private) to access the resource.
+    """
+
+
 class SpotifyClient:
     """Thin wrapper around the Spotify Web API (Client Credentials flow).
 
@@ -110,6 +126,91 @@ class SpotifyClient:
             raise SpotifyError(f"Spotify audio-features failed ({resp.status_code})")
         return resp.json()
 
+    def get_artist(self, artist_id: str) -> Dict:
+        """Fetch artist details, including genres."""
+        token = self._get_token()
+        resp = httpx.get(
+            f"{SPOTIFY_API_BASE}/artists/{artist_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+        if resp.status_code != 200:
+            raise SpotifyError(f"Spotify artist lookup failed ({resp.status_code})")
+        return resp.json()
+
+    def get_playlist(
+        self, playlist_id: str, max_tracks: int = 100, token_override: Optional[str] = None,
+    ) -> Dict:
+        """Fetch playlist metadata and up to *max_tracks* track summaries.
+
+        Spotify returns up to 100 items per page; we keep paging until we
+        have *max_tracks* or exhaust the playlist.
+
+        *token_override* lets the route pass the user's personal OAuth token
+        instead of the app-level Client Credentials token so that private
+        playlists can be fetched when the user has connected their account.
+        """
+        token = token_override or self._get_token()
+        # Fetch playlist metadata (name, description, image).
+        resp = httpx.get(
+            f"{SPOTIFY_API_BASE}/playlists/{playlist_id}",
+            params={"fields": "id,name,description,images,tracks.total"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+        if resp.status_code == 404:
+            raise SpotifyNotFoundError(
+                f"Playlist '{playlist_id}' not found (404) — it may be private or deleted"
+            )
+        if resp.status_code != 200:
+            raise SpotifyError(f"Spotify playlist lookup failed ({resp.status_code})")
+        meta = resp.json()
+
+        tracks: List[Dict] = []
+        offset = 0
+        page_size = 100  # Spotify max per page
+        while len(tracks) < max_tracks:
+            remaining = max_tracks - len(tracks)
+            limit = min(page_size, remaining)
+            page_resp = httpx.get(
+                f"{SPOTIFY_API_BASE}/playlists/{playlist_id}/items",
+                params={
+                    "fields": "items(item(id,name,artists,album,duration_ms,preview_url,uri,external_urls)),next",
+                    "limit": limit,
+                    "offset": offset,
+                },
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=15.0,
+            )
+            if page_resp.status_code in (401, 403):
+                raise SpotifyForbiddenError(
+                    "Forbidden (403/401) — Your connected Spotify account is missing permission to read this playlist. "
+                    "Please go to Settings, disconnect, and reconnect Spotify to grant the new playlist permissions."
+                )
+            if page_resp.status_code != 200:
+                raise SpotifyError(f"Spotify playlist tracks failed ({page_resp.status_code})")
+            page = page_resp.json()
+            items = page.get("items", [])
+            for list_item in items:
+                track = list_item.get("item") or list_item.get("track")
+                # Skip local tracks (no Spotify ID) or null entries.
+                if not track or not track.get("id"):
+                    continue
+                tracks.append(self._summarize_track(track))
+            if not page.get("next") or not items:
+                break
+            offset += len(items)
+
+        images = meta.get("images") or []
+        return {
+            "playlist_id": meta.get("id"),
+            "name": meta.get("name"),
+            "description": meta.get("description"),
+            "image_url": images[0].get("url") if images else None,
+            "total": meta.get("tracks", {}).get("total", 0),
+            "tracks": tracks,
+        }
+
     # ------------------------------------------------------------------
     # Mapping → our AudioFeatures-compatible dict
     # ------------------------------------------------------------------
@@ -173,12 +274,14 @@ class SpotifyClient:
     @staticmethod
     def _summarize_track(t: Dict) -> Dict:
         artists = ", ".join(a.get("name", "") for a in t.get("artists", []))
+        artist_ids = [a.get("id") for a in t.get("artists", []) if a.get("id")]
         album = (t.get("album") or {}).get("name")
         external_urls = t.get("external_urls") or {}
         return {
             "spotify_track_id": t.get("id"),
             "title": t.get("name"),
             "artist": artists or None,
+            "artist_ids": artist_ids,
             "album": album,
             "duration_ms": t.get("duration_ms"),
             "preview_url": t.get("preview_url"),

@@ -1,3 +1,4 @@
+import sqlalchemy as sa
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -124,9 +125,28 @@ _engine_kwargs = {
     "pool_recycle": 1800,
     "echo": settings.debug,
 }
-if not settings.database_url.startswith("sqlite"):
+if settings.database_url.startswith("sqlite"):
+    _engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
     _engine_kwargs.update({"pool_size": 10, "max_overflow": 20})
 engine = create_engine(settings.database_url, **_engine_kwargs)
+
+
+@sa.event.listens_for(engine, "connect")
+def _set_sqlite_pragma(dbapi_connection, connection_record):
+    """Enable foreign-key enforcement on SQLite connections.
+
+    SQLite ships with ``PRAGMA foreign_keys = OFF`` by default, which
+    means DB-level ``ON DELETE CASCADE`` on FK columns is silently
+    ignored.  Turning it on per-connection ensures cascading deletes
+    (e.g. deleting a Music row also deletes its AudioFeatures and
+    Recommendation rows) work at the database level, not only through
+    the SQLAlchemy ORM cascade.
+    """
+    if settings.database_url.startswith("sqlite"):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys = ON")
+        cursor.close()
 
 # Create SessionLocal class
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

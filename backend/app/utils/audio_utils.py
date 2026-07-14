@@ -41,6 +41,20 @@ def _normalize_genre(genre: Optional[str]) -> Optional[str]:
     return _GENRE_SYNONYMS.get(g, g)
 
 
+def genre_to_title_case(genre: Optional[str]) -> Optional[str]:
+    """Convert a genre string to Title Case, handling comma-separated lists.
+
+    Each genre in a comma-separated list is individually converted so that
+    e.g. "alternative rock" → "Alternative Rock" and "hip-hop, pop" →
+    "Hip-Hop, Pop".  Returns ``None`` for falsy input.
+    """
+    if not genre:
+        return None
+    return ", ".join(
+        g.strip().title() for g in str(genre).split(",") if g.strip()
+    )
+
+
 def genre_to_vector(
     genre: Optional[str], vocab: List[str] = GENRE_VOCABULARY
 ) -> List[float]:

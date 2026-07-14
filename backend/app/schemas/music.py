@@ -23,7 +23,8 @@ class MusicBase(BaseModel):
 
 
 class MusicCreate(MusicBase):
-    pass
+    # Optional folder placement.  NULL (default) means "Uncategorized".
+    folder_id: Optional[int] = None
 
 
 class MusicUpdate(BaseModel):
@@ -31,6 +32,7 @@ class MusicUpdate(BaseModel):
     artist: Optional[str] = None
     album: Optional[str] = None
     genre: Optional[str] = None
+    folder_id: Optional[int] = None
 
 
 AnalysisStatus = Literal["pending", "analyzing", "ready", "error"]
@@ -54,6 +56,8 @@ class MusicResponse(MusicBase):
     file_path: Optional[str] = None
     file_size: Optional[int] = None
     user_id: int
+    folder_id: Optional[int] = None
+    slug: Optional[str] = None
     created_at: datetime
 
     # Lifecycle tracking.  ``file_hash`` is exposed so the frontend can
@@ -90,6 +94,38 @@ class SpotifySearchResult(BaseModel):
 
 class SpotifyAddRequest(BaseModel):
     spotify_track_id: str
+    folder_id: Optional[int] = None
+
+
+class SpotifyPlaylistRequest(BaseModel):
+    """Request body for POST /api/spotify/playlist.
+
+    Accepts either a full Spotify playlist URL or a bare playlist ID.
+    """
+    playlist_url: str
+    folder_id: Optional[int] = None
+    max_tracks: int = 2000  # capped server-side at 2000
+
+
+class SpotifyPlaylistTrackResult(BaseModel):
+    """Per-track outcome in a playlist import response."""
+    spotify_track_id: str
+    title: str
+    artist: Optional[str] = None
+    status: str   # 'added' | 'duplicate' | 'error'
+    music_id: Optional[int] = None
+    error: Optional[str] = None
+
+
+class SpotifyPlaylistImportResult(BaseModel):
+    """Summary returned by POST /api/spotify/playlist."""
+    playlist_name: str
+    playlist_image: Optional[str] = None
+    total_in_playlist: int
+    added: int
+    duplicates: int
+    errors: int
+    tracks: list[SpotifyPlaylistTrackResult]
 
 
 class SpotifyPlayRequest(BaseModel):

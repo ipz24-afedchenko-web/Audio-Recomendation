@@ -290,7 +290,8 @@ class GenreClassifier:
         for music, af in unlabelled:
             result = self.predict(db, music.id)
             if result:
-                music.genre = result["predicted_genre"]
+                from app.utils.audio_utils import genre_to_title_case
+                music.genre = genre_to_title_case(result["predicted_genre"])
                 predicted_count += 1
 
         db.commit()

@@ -16,6 +16,8 @@ import musicbrainzngs
 from google import genai
 from google.genai import types
 
+from app.utils.audio_utils import GENRE_VOCABULARY, _normalize_genre
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,7 +36,7 @@ class AITagger:
             raise ValueError("GEMINI_API_KEY environment variable is required")
 
         self.gemini_client = genai.Client(api_key=self.gemini_api_key)
-        self.gemini_model = "gemini-2.5-flash"  # Confirmed available model
+        self.gemini_model = "gemini-flash-latest"  # Use latest flash for higher free tier limits
 
         # Configure MusicBrainz
         musicbrainzngs.set_useragent(
@@ -79,21 +81,37 @@ Filename: {name_without_ext}
 
 Return only the artist and title."""
 
-            response = self.gemini_client.models.generate_content(
-                model=self.gemini_model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "object",
-                        "properties": {
-                            "artist": {"type": "string"},
-                            "title": {"type": "string"}
-                        },
-                        "required": ["artist", "title"]
-                    }
-                )
-            )
+            max_retries = 3
+            retry_delay = 5.0
+            
+            for attempt in range(max_retries):
+                try:
+                    time.sleep(4.1)  # Gemini 1.5 Flash free tier is 15 RPM. Sleep ~4s to stay under limit.
+                    response = self.gemini_client.models.generate_content(
+                        model=self.gemini_model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema={
+                                "type": "object",
+                                "properties": {
+                                    "artist": {"type": "string"},
+                                    "title": {"type": "string"},
+                                    "album": {"type": "string"}
+                                },
+                                "required": ["artist", "title"]
+                            }
+                        )
+                    )
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if "429" in err_str and attempt < max_retries - 1:
+                        logger.warning(f"Gemini API rate limit hit in parse_filename. Retrying in {retry_delay}s...")
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise e
 
             result = json.loads(response.text)
             return {
@@ -150,118 +168,163 @@ Return only the artist and title."""
         limit: int = 5
     ) -> Optional[Dict[str, Any]]:
         """
-        Fetch metadata from MusicBrainz API.
-
-        Args:
-            artist: Artist name
-            title: Track title
-            limit: Maximum number of results to fetch
-
-        Returns:
-            Dictionary with metadata (genre, album, year) or None if not found
+        Fetch metadata using iTunes Search API.
+        It is free, requires no auth, and has excellent genre tagging.
         """
-        # Rate limiting
-        self._respect_rate_limit()
-
         try:
-            result = musicbrainzngs.search_recordings(
-                artist=artist,
-                recording=title,
-                limit=limit,
-            )
-
-            if not result.get('recording-list'):
+            # Clean up query
+            query = f"{artist} {title}".strip()
+            if not query:
                 return None
-
-            # Get the best match (first result)
-            best_match = result['recording-list'][0]
-
+                
+            url = "https://itunes.apple.com/search"
+            params = {
+                "term": query,
+                "entity": "song",
+                "limit": 1
+            }
+            
+            headers = {"User-Agent": "MusicGenreClassifier/1.0"}
+            response = httpx.get(url, params=params, headers=headers, timeout=10.0)
+            
+            if response.status_code != 200:
+                logger.warning("iTunes API returned %s", response.status_code)
+                return None
+                
+            data = response.json()
+            if not data.get("results"):
+                return None
+                
+            track = data["results"][0]
+            
             metadata = {
-                "artist": best_match.get('artist-credit-phrase', artist),
-                "title": best_match.get('title', title),
-                "genre": None,
-                "album": None,
+                "artist": track.get("artistName", artist),
+                "title": track.get("trackName", title),
+                "genre": track.get("primaryGenreName"),
+                "album": track.get("collectionName"),
                 "year": None
             }
-
-            # Extract genres from tags — sort by vote count (count attr), take top 3
-            if 'tag-list' in best_match:
-                tags = best_match['tag-list']
-                # Sort by vote count descending (MusicBrainz returns count as string)
-                tags_sorted = sorted(
-                    tags,
-                    key=lambda t: int(t.get('count', 0)),
-                    reverse=True
-                )
-                tag_names = [t['name'] for t in tags_sorted if t.get('name')]
-                if tag_names:
-                    metadata["genre"] = ", ".join(tag_names[:3])
-
-            # Also check releases for genre tags if recording has none
-            if not metadata["genre"] and 'release-list' in best_match:
-                for release in best_match['release-list'][:3]:
-                    if 'tag-list' in release:
-                        tags = release['tag-list']
-                        tags_sorted = sorted(
-                            tags,
-                            key=lambda t: int(t.get('count', 0)),
-                            reverse=True
-                        )
-                        tag_names = [t['name'] for t in tags_sorted if t.get('name')]
-                        if tag_names:
-                            metadata["genre"] = ", ".join(tag_names[:3])
-                            break
-
-            # Extract album and year
-            if 'release-list' in best_match and best_match['release-list']:
-                release = best_match['release-list'][0]
-                metadata["album"] = release.get('title')
-                if 'date' in release:
-                    # Extract year from date (YYYY-MM-DD format)
-                    try:
-                        metadata["year"] = int(release['date'][:4])
-                    except (ValueError, IndexError):
-                        pass
+            
+            # Extract year from releaseDate
+            if track.get("releaseDate"):
+                try:
+                    metadata["year"] = int(track["releaseDate"][:4])
+                except (ValueError, IndexError):
+                    pass
 
             return metadata
 
         except Exception as e:
-            # Log error but don't crash
-            logger.error("MusicBrainz API error: %s", str(e))
+            logger.error("iTunes API error: %s", str(e))
             return None
 
-    def fetch_genre_with_ai(self, artist: str, title: str) -> Optional[str]:
+    def _map_musicbrainz_tags_to_genre(self, tags_str: str, allowed_genres: list[str]) -> Optional[str]:
+        if not tags_str:
+            return None
+        tags = [t.strip().lower() for t in tags_str.split(',') if t.strip()]
+        
+        # Exact matches first
+        for tag in tags:
+            for g in allowed_genres:
+                if tag == g.lower():
+                    return g.lower()
+                    
+        # Substring match (tag contains the genre, e.g., 'pop rock' contains 'rock')
+        for tag in tags:
+            for g in allowed_genres:
+                if g.lower() in tag:
+                    return g.lower()
+                    
+        return None
+
+    def fetch_genre_with_ai(
+        self,
+        artist: str,
+        title: str,
+        allowed_genres: Optional[list[str]] = None,
+    ) -> Optional[str]:
         """
         Use Gemini to predict the music genre based on artist and title.
-        Called as a fallback when MusicBrainz has no tags.
+
+        When ``allowed_genres`` is provided, the prompt constrains Gemini to
+        pick from that list and normalises the result against it, so the
+        returned value is always one of the allowed items (or ``None``).
 
         Returns:
-            Genre string (e.g. "rock, alternative") or None
+            A single genre string matching an allowed genre, or ``None``.
         """
-        try:
-            prompt = f"""What is the music genre of the song "{title}" by "{artist}"?
-Return only the genre name(s), comma-separated (e.g. "rock, alternative rock").
-Use standard genre names. Return at most 3 genres. No explanation."""
+        if allowed_genres is None:
+            allowed_genres = GENRE_VOCABULARY
 
-            response = self.gemini_client.models.generate_content(
-                model=self.gemini_model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema={
-                        "type": "object",
-                        "properties": {
-                            "genre": {"type": "string"}
-                        },
-                        "required": ["genre"]
-                    }
-                )
-            )
+        genres_list = ", ".join(allowed_genres)
+
+        try:
+            prompt = f"""What is the most specific music genre of the song "{title}" by "{artist}"?
+Choose only from this list: {genres_list}.
+Return a single genre name from the list. If none of the genres fit, return the closest match.
+No explanation, no extra text."""
+
+            max_retries = 3
+            retry_delay = 5.0
+            
+            for attempt in range(max_retries):
+                try:
+                    time.sleep(4.1)  # Gemini 1.5 Flash free tier is 15 RPM. Sleep ~4s to stay under limit.
+                    response = self.gemini_client.models.generate_content(
+                        model=self.gemini_model,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema={
+                                "type": "object",
+                                "properties": {
+                                    "genre": {"type": "string"}
+                                },
+                                "required": ["genre"]
+                            }
+                        )
+                    )
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if "429" in err_str:
+                        logger.warning(f"Gemini API rate limit hit in fetch_genre (Attempt {attempt+1}/{max_retries}).")
+                        if attempt == max_retries - 1:
+                            logger.warning(f"Gemini exhausted. Falling back to MusicBrainz for '{title}'.")
+                            mb_meta = self.fetch_metadata(artist, title)
+                            if mb_meta and mb_meta.get("genre"):
+                                return self._map_musicbrainz_tags_to_genre(mb_meta["genre"], allowed_genres)
+                            return None
+                        
+                        time.sleep(retry_delay)
+                        retry_delay *= 2
+                    else:
+                        raise e
             result = json.loads(response.text)
-            genre = result.get("genre", "").strip()
-            return genre if genre else None
+            raw = result.get("genre", "").strip().lower()
+            if not raw:
+                return None
+
+            # Try exact match first, then synonym normalisation.
+            if raw in allowed_genres:
+                return raw
+
+            normalized = _normalize_genre(raw)
+            if normalized in allowed_genres:
+                return normalized
+
+            # Fuzzy: find the closest match in the vocabulary.
+            for g in allowed_genres:
+                if raw in g or g in raw:
+                    return g
+
+            return None
         except Exception as e:
             logger.error("Gemini genre prediction error: %s", str(e))
+            # Fallback on other errors too
+            mb_meta = self.fetch_metadata(artist, title)
+            if mb_meta and mb_meta.get("genre"):
+                return self._map_musicbrainz_tags_to_genre(mb_meta["genre"], allowed_genres)
             return None
 
     def _respect_rate_limit(self):

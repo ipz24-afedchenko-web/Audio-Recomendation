@@ -1,13 +1,12 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation } from "react-router-dom";
+import { useLocation, useParams } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Sparkle,
   Play,
   SpotifyLogo,
   Spinner,
-  Waveform,
   ArrowCounterClockwise,
   ChartBar,
   MagnifyingGlass,
@@ -51,6 +50,8 @@ export default function RecommendationsPage() {
   const { playTrack } = usePlayer();
   const { toast } = useToast();
   const location = useLocation();
+  const params = useParams();
+  const paramId = params.musicId;
 
   const [tracks, setTracks] = useState([]);
   const [sourceId, setSourceId] = useState("");
@@ -73,9 +74,15 @@ export default function RecommendationsPage() {
       const res = await musicAPI.getUserMusic(user.id);
       const list = res.data || [];
       setTracks(list);
-      // Pre-select track from navigate state (passed by AnalyzePage)
+      // Pre-select: slug/id from the URL (preferred), then navigate state,
+      // then the first track in the library.
+      const paramTrack = paramId
+        ? list.find((t) => t.slug === paramId || String(t.id) === String(paramId))
+        : null;
       const navId = location.state?.sourceId;
-      if (navId) {
+      if (paramTrack) {
+        setSourceId(String(paramTrack.id));
+      } else if (navId) {
         setSourceId(String(navId));
       } else if (!sourceId && list.length) {
         setSourceId(String(list[0].id));
@@ -263,9 +270,9 @@ export default function RecommendationsPage() {
       )}
 
       {!loading && filteredRecs.length === 0 && recs.length > 0 && (
-        <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">
-          No recommendations match "{recFilter}"
-        </div>
+            <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center text-sm text-muted-foreground">
+              No recommendations match &quot;{recFilter}&quot;
+            </div>
       )}
 
       {!loading && filteredRecs.length > 0 && (
@@ -305,7 +312,7 @@ export default function RecommendationsPage() {
                         {m.artist || "—"}
                       </p>
                       {m.genre && (
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground capitalize">
                           {m.genre}
                         </p>
                       )}

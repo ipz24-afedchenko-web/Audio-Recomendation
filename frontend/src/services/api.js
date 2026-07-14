@@ -47,7 +47,7 @@ export const musicAPI = {
 
   getById: (id) => api.get(`/music/${id}`),
 
-  getUserMusic: (userId) => api.get(`/music/user/${userId}`),
+  getUserMusic: (userId, limit = 5000) => api.get(`/music/user/${userId}?limit=${limit}`),
 
   update: (id, data) => api.put(`/music/${id}`, data),
 
@@ -69,14 +69,35 @@ export const musicAPI = {
 
   aiStatus: () => api.get('/music/ai-status'),
 
+  /** Bulk-move tracks into (or out of) a folder.
+   *  @param {Array<number|string>} musicIds - track ids or slugs
+   *  @param {number|null} folderId - destination folder id, or null to unfile */
+  move: (musicIds, folderId) =>
+    api.put('/music/move', { music_ids: musicIds, folder_id: folderId }),
+
+
   /* Spotify (free tier, Client Credentials — no Premium needed) */
   spotifyStatus: () => api.get('/spotify/status'),
 
   spotifySearch: (q, limit = 10) =>
     api.get('/spotify/search', { params: { q, limit } }),
 
-  addSpotify: (spotifyTrackId) =>
-    api.post('/spotify/add', { spotify_track_id: spotifyTrackId }),
+  addSpotify: (spotifyTrackId, folderId = null) =>
+    api.post('/spotify/add', { spotify_track_id: spotifyTrackId, folder_id: folderId }),
+
+  /**
+   * Import all tracks from a Spotify playlist URL or ID.
+   * @param {string} playlistUrl - full URL, URI, or bare playlist ID
+   * @param {number|null} folderId - optional destination folder
+   * @param {number} maxTracks - cap (1–100, server enforces)
+   * @returns {Promise<SpotifyPlaylistImportResult>}
+   */
+  importPlaylist: (playlistUrl, folderId = null, maxTracks = 2000) =>
+    api.post('/spotify/playlist', {
+      playlist_url: playlistUrl,
+      folder_id: folderId,
+      max_tracks: maxTracks,
+    }),
 
   /**
    * Poll a track's analysis status until it lands in a terminal state
@@ -164,6 +185,16 @@ export const recommendAPI = {
     api.post('/ab/promote', null, { params: { algorithm } }),
 
   getDefault: () => api.get('/ab/default'),
+};
+
+/* ── Folders ── */
+
+export const folderAPI = {
+  list: () => api.get('/folders'),
+
+  create: (name) => api.post('/folders', { name }),
+
+  delete: (id) => api.delete(`/folders/${id}`),
 };
 
 /* ── Admin ── */

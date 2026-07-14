@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent))
 
 from app.database import Base
-from app.models import User, Music, AudioFeatures, Recommendation, SpotifyAuth
+from app.models import User, Music, AudioFeatures, Recommendation, SpotifyAuth, Folder
 
 # this is the Alembic Config object
 config = context.config

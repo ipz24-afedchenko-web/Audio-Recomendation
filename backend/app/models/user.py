@@ -18,6 +18,7 @@ class User(Base):
 
     # Relationships
     music = relationship("Music", back_populates="owner", cascade="all, delete-orphan")
+    folders = relationship("Folder", back_populates="owner", cascade="all, delete-orphan")
     recommendations = relationship("Recommendation", back_populates="user", cascade="all, delete-orphan")
     spotify_auth = relationship("SpotifyAuth", back_populates="user", uselist=False, cascade="all, delete-orphan")
 

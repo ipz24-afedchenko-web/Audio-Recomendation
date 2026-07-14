@@ -35,7 +35,7 @@ def test_upload_accepts_valid_mp3(client, auth_headers, uploads_dir):
     body = r.json()
     assert body["title"] == "Track 1"
     assert body["artist"] == "Tester"
-    assert body["genre"] == "rock"
+    assert body["genre"] == "Rock"
     assert body["id"] > 0
 
 

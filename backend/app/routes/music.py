@@ -1,7 +1,7 @@
 import os
 import logging
 import mimetypes
-from typing import List
+from typing import List, Optional
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -14,17 +14,24 @@ from fastapi import (
     Request as _Request,
 )
 from fastapi.responses import StreamingResponse as _StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db, get_settings
 from app.models.user import User
 from app.models.music import Music, ANALYSIS_STATUS_PENDING
+from app.models.recommendation import Recommendation
+from app.models.folder import Folder
 from app.schemas.music import MusicResponse, MusicCreate, MusicUpdate, MusicWithFeatures
+from app.schemas.folder import FolderResponse, FolderCreate
 from app.utils.auth import get_current_active_user
 from app.utils.file_validation import validate_audio_file
+from app.utils.audio_utils import genre_to_title_case
+from app.utils.slug import generate_unique_slug, resolve_music
 from app.services.ai_tagger import get_ai_tagger
 from app.services.audio_analyzer import run_analysis as run_audio_analysis
 from app.services.storage import get_storage
+from app.services.cache import flush_all_recommendation_cache
 
 router = APIRouter(prefix="/api/music", tags=["music"])
 settings = get_settings()
@@ -46,6 +53,7 @@ async def upload_music(
     external_id: str = Form(None),
     external_uri: str = Form(None),
     cover_url: str = Form(None),
+    folder_id: int = Form(None),
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
@@ -121,17 +129,35 @@ async def upload_music(
     # 5. Create the database record.  Status starts as ``pending``; the
     #    background task will flip it to ``analyzing`` → ``ready`` (or
     #    ``error``).
+    # 5b. Generate a URL-friendly slug (unique per user) and validate the
+    #     optional folder placement before persisting.
+    slug = generate_unique_slug(db, current_user.id, artist, title)
+    if folder_id is not None:
+        folder = (
+            db.query(Folder)
+            .filter(Folder.id == folder_id, Folder.user_id == current_user.id)
+            .first()
+        )
+        if folder is None:
+            storage.delete(file_path)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found",
+            )
+
     db_music = Music(
         title=title,
         artist=artist,
         album=album,
-        genre=genre,
+        genre=genre_to_title_case(genre),
         external_id=external_id or None,
         external_uri=external_uri or None,
         cover_url=cover_url or None,
         file_path=file_path,
         file_size=file_size,
         file_hash=file_hash,
+        slug=slug,
+        folder_id=folder_id,
         analysis_status=ANALYSIS_STATUS_PENDING,
         user_id=current_user.id,
     )
@@ -163,32 +189,19 @@ async def ai_status(current_user: User = Depends(get_current_active_user)):
     }
 
 
-@router.get("/{music_id}", response_model=MusicResponse)
+@router.get("/{id_or_slug}", response_model=MusicResponse)
 def get_music(
-    music_id: int,
+    id_or_slug: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
-    Get music track by ID.
+    Get a music track by integer ID or per-user slug.
 
-    Returns music metadata.
+    Returns music metadata.  Both identifiers resolve to the same row; the
+    slug form powers human-readable links such as ``/analyze/tdme-antytila``.
     """
-    music = db.query(Music).filter(Music.id == music_id).first()
-    if not music:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Music not found"
-        )
-
-    # Check if user owns the music or is superuser
-    if music.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this music"
-        )
-
-    return music
+    return resolve_music(db, current_user, id_or_slug)
 
 
 @router.get("/user/{user_id}", response_model=List[MusicResponse])
@@ -224,30 +237,18 @@ def get_user_music(
     return music_list
 
 
-@router.delete("/{music_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{id_or_slug}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_music(
-    music_id: int,
+    id_or_slug: str,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
-    Delete a music track.
+    Delete a music track by ID or slug.
 
     Deletes both the database record and the audio file.
     """
-    music = db.query(Music).filter(Music.id == music_id).first()
-    if not music:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Music not found"
-        )
-
-    # Check ownership
-    if music.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to delete this music"
-        )
+    music = resolve_music(db, current_user, id_or_slug)
 
     # Delete file from storage backend (catalog tracks have no file).
     if music.file_path:
@@ -256,42 +257,121 @@ def delete_music(
         except Exception as e:
             logger.warning("Failed to delete file %s: %s", music.file_path, str(e))
 
-    # Delete from database
+    # Delete orphaned recommendations explicitly (belt-and-suspenders
+    # alongside the ORM cascade) so stale recommendation rows never
+    # reference a deleted track.
+    db.query(Recommendation).filter(
+        (Recommendation.source_music_id == music.id)
+        | (Recommendation.recommended_music_id == music.id)
+    ).delete(synchronize_session=False)
+
+    # Delete from database — ORM cascade also deletes AudioFeatures
+    # and Recommendations, but the explicit query above ensures it.
     db.delete(music)
     db.commit()
+
+    # Invalidate ALL recommendation caches so no user is served stale
+    # data referencing the deleted track.  No-op when Redis unavailable.
+    flush_all_recommendation_cache()
 
     return None
 
 
-@router.put("/{music_id}", response_model=MusicResponse)
-def update_music(
-    music_id: int,
-    music_update: MusicUpdate,
+class MoveTracksRequest(BaseModel):
+    # Track identifiers — either integer IDs or per-user slugs.  NULL
+    # ``folder_id`` (the default) moves the tracks back to "Uncategorized".
+    music_ids: List[str]
+    folder_id: Optional[int] = None
+
+
+@router.put("/move", response_model=dict)
+def move_tracks(
+    payload: MoveTracksRequest,
     current_user: User = Depends(get_current_active_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     """
-    Update music metadata.
+    Bulk-move tracks into (or out of) a folder.
 
-    Only title, artist, album, and genre can be updated.
+    ``music_ids`` accepts a mix of integer IDs and per-user slugs.  Tracks
+    not owned by the caller (or not found) are reported in ``failed`` rather
+    than aborting the whole batch.  A ``NULL`` ``folder_id`` unfiles the
+    tracks to "Uncategorized".
     """
-    music = db.query(Music).filter(Music.id == music_id).first()
-    if not music:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Music not found"
+    # Validate the destination folder belongs to the user (when not unfiling).
+    if payload.folder_id is not None:
+        folder = (
+            db.query(Folder)
+            .filter(
+                Folder.id == payload.folder_id,
+                Folder.user_id == current_user.id,
+            )
+            .first()
         )
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found",
+            )
 
-    # Check ownership
-    if music.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to update this music"
-        )
+    succeeded = []
+    failed = []
+    for raw in payload.music_ids:
+        try:
+            music = resolve_music(db, current_user, str(raw))
+        except HTTPException:
+            failed.append(str(raw))
+            continue
+        music.folder_id = payload.folder_id
+        succeeded.append(music.id)
 
-    # Update fields
+    db.commit()
+    logger.info(
+        "Moved %s tracks to folder_id=%s for user_id=%s (%s failed)",
+        len(succeeded), payload.folder_id, current_user.id, len(failed),
+    )
+    return {
+        "moved": len(succeeded),
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+
+
+@router.put("/{id_or_slug}", response_model=MusicResponse)
+def update_music(
+    id_or_slug: str,
+    music_update: MusicUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Update music metadata by ID or slug.
+
+    Only title, artist, album, genre, and folder_id can be updated.  The
+    slug is managed automatically and cannot be set directly.
+    """
+    music = resolve_music(db, current_user, id_or_slug)
+
+    # If the caller is (re)assigning a folder, make sure it belongs to them.
     update_data = music_update.model_dump(exclude_unset=True)
+    if "folder_id" in update_data and update_data["folder_id"] is not None:
+        folder = (
+            db.query(Folder)
+            .filter(
+                Folder.id == update_data["folder_id"],
+                Folder.user_id == current_user.id,
+            )
+            .first()
+        )
+        if folder is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Folder not found",
+            )
+
     for field, value in update_data.items():
+        if field == "genre" and value:
+            value = genre_to_title_case(value)
         setattr(music, field, value)
 
     db.commit()
@@ -319,6 +399,8 @@ async def auto_tag_file(
     try:
         tagger = get_ai_tagger()
         metadata = tagger.auto_tag(filename)
+        if metadata.get("genre"):
+            metadata["genre"] = genre_to_title_case(metadata["genre"])
 
         # Best-effort Spotify lookup so the upload can be linked to a
         # catalog track.  Fails silently — auto-tagging still works without
@@ -359,20 +441,16 @@ async def auto_tag_file(
         )
 
 
-@router.get("/{music_id}/stream")
+@router.get("/{id_or_slug}/stream")
 def stream_audio(
-    music_id: int,
+    id_or_slug: str,
     request: _Request,
     current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db),
 ):
     from app.models.music import SOURCE_SPOTIFY
 
-    music = db.query(Music).filter(Music.id == music_id).first()
-    if music is None:
-        raise HTTPException(404, "Track not found")
-    if music.user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(403, "Forbidden")
+    music = resolve_music(db, current_user, id_or_slug)
     if music.source == SOURCE_SPOTIFY or not music.file_path:
         raise HTTPException(404, "No audio file for this track")
 
@@ -432,3 +510,6 @@ def stream_audio(
             "Accept-Ranges": "bytes",
         },
     )
+
+
+

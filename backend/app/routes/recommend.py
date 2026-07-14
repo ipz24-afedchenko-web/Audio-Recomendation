@@ -24,6 +24,7 @@ from app.models.recommendation import Recommendation
 from app.models.algorithm_event import AlgorithmEvent
 from app.schemas.recommendation import RecommendationResponse, RecommendationWithMusic
 from app.utils.auth import get_current_active_user
+from app.utils.slug import resolve_music
 from app.services.ab_stats import get_default_algorithm
 from app.services.cache import cache_get, cache_set, recommendations_cache_key
 from app.services.genre_classifier import GenreClassifier
@@ -66,9 +67,9 @@ def _record_impressions(db: Session, user_id: int, algorithm: int, source_music_
         logger.warning("Failed to record impressions: %s", str(e))
 
 
-@router.get("/{music_id}", response_model=List[RecommendationWithMusic])
+@router.get("/{id_or_slug}", response_model=List[RecommendationWithMusic])
 async def get_recommendations(
-    music_id: int,
+    id_or_slug: str,
     background_tasks: BackgroundTasks,
     limit: int = Query(default=10, ge=1, le=50),
     algorithm: int | None = Query(default=None, ge=1, le=3, description="1=cosine, 2=euclidean, 3=cluster-aware. Omit to use the promoted default algorithm (W4-2)."),
@@ -85,20 +86,16 @@ async def get_recommendations(
 
     Uses ML algorithms to find similar tracks based on audio features.
 
-    - **music_id**: ID of the source music track
+    - **id_or_slug**: ID or per-user slug of the source music track
     - **limit**: Maximum number of recommendations (1-50, default 10)
     - **algorithm**: Recommendation algorithm (1=cosine, 2=euclidean, 3=cluster-aware cosine)
     - **ab_test**: When true, ignores `algorithm` and randomly assigns one for A/B testing
 
     Returns list of recommended tracks with similarity scores.
     """
-    # Validate source music exists
-    source_music = db.query(Music).filter(Music.id == music_id).first()
-    if not source_music:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Source music not found"
-        )
+    # Resolve the source track by ID or slug; ownership is enforced inside.
+    source_music = resolve_music(db, current_user, id_or_slug)
+    music_id = source_music.id
 
     # Verify audio features exist
     source_features = db.query(AudioFeatures).filter(
@@ -215,6 +212,7 @@ def get_user_recommendations(
         )
 
     recommendations = db.query(Recommendation)\
+        .join(Music, Recommendation.recommended_music_id == Music.id)\
         .filter(Recommendation.user_id == user_id)\
         .order_by(Recommendation.created_at.desc())\
         .offset(skip)\

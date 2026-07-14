@@ -23,6 +23,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Button } from "../components/ui/button";
 import { Skeleton } from "../components/ui/skeleton";
 import StatusBadge from "../components/StatusBadge";
+import { Badge } from "../components/ui/badge";
 import CoverArt from "../components/CoverArt";
 
 const clamp01 = (v) => {
@@ -224,8 +225,13 @@ export default function AnalyzePage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{track.title}</h1>
             <p className="text-sm text-muted-foreground">{track.artist}</p>
-            <div className="mt-1">
+            <div className="mt-1 flex items-center gap-2">
               <StatusBadge status={track.analysis_status} />
+              {track.genre && (
+                <Badge variant="outline" className="pointer-events-none capitalize">
+                  {track.genre}
+                </Badge>
+              )}
             </div>
           </div>
         </div>
@@ -234,7 +240,7 @@ export default function AnalyzePage() {
             <Play className="h-4 w-4" />
             {t("analyze.playLocal")}
           </Button>
-          <Button className="gap-2" onClick={() => navigate("/recommendations", { state: { sourceId: Number(musicId) } })}>
+            <Button className="gap-2" onClick={() => navigate(`/recommendations/${track.slug || musicId}`)}>
             <Sparkle className="h-4 w-4" />
             {t("analyze.recommendations")}
           </Button>

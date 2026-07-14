@@ -75,12 +75,28 @@ class Music(Base):
     )
     analysis_error = Column(Text, nullable=True)
 
+    # Library organisation.  ``folder_id`` groups a user's tracks into
+    # user-created folders; NULL means "Uncategorized".  Deleting a folder
+    # SETs this to NULL rather than cascading the track (the file + features
+    # are preserved).
+    folder_id = Column(
+        Integer, ForeignKey("folders.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # URL-friendly identifier derived from artist + title.  Powers
+    # slug-based routing (``/analyze/:slug``) so links are human-readable
+    # and stable per-user.  NULL only for legacy rows; new tracks always
+    # get one.  The partial unique index below blocks duplicate slugs for
+    # the same user while still allowing many NULLs.
+    slug = Column(String(255), nullable=True)
+
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
     owner = relationship("User", back_populates="music")
+    folder = relationship("Folder", back_populates="tracks")
     audio_features = relationship(
         "AudioFeatures",
         back_populates="music",
@@ -116,7 +132,17 @@ class Music(Base):
             sqlite_where=(source != SOURCE_LOCAL),
             postgresql_where=(source != SOURCE_LOCAL),
         ),
+        # Partial unique index on (user_id, slug): only non-NULL slugs are
+        # indexed, so a user may have many uncategorized (NULL-slug) tracks
+        # but never two tracks sharing the same slug.  Mirrors the
+        # postgresql_where / sqlite_where dual syntax used above.
+        Index(
+            "ix_music_user_slug", "user_id", "slug", unique=True,
+            sqlite_where=slug.isnot(None),
+            postgresql_where=slug.isnot(None),
+        ),
         Index("ix_music_source", "source"),
+        Index("ix_music_folder", "folder_id"),
     )
 
     def __repr__(self):

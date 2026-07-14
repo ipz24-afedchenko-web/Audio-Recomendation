@@ -411,10 +411,11 @@ class MLRecommender:
 
         source_vec = np.array(source_vec, dtype=np.float64).reshape(1, -1)
 
-        # 2. Select candidate pool
+        # 2. Select candidate pool (join to Music to exclude orphaned records)
         if algorithm == 3 and source_af.cluster_id is not None:
             candidates = (
                 db.query(AudioFeatures)
+                .join(Music, AudioFeatures.music_id == Music.id)
                 .filter(
                     AudioFeatures.cluster_id == source_af.cluster_id,
                     AudioFeatures.music_id != music_id,
@@ -424,6 +425,7 @@ class MLRecommender:
             if len(candidates) < limit:
                 extra = (
                     db.query(AudioFeatures)
+                    .join(Music, AudioFeatures.music_id == Music.id)
                     .filter(
                         AudioFeatures.music_id != music_id,
                         AudioFeatures.cluster_id != source_af.cluster_id,
@@ -434,6 +436,7 @@ class MLRecommender:
         else:
             candidates = (
                 db.query(AudioFeatures)
+                .join(Music, AudioFeatures.music_id == Music.id)
                 .filter(AudioFeatures.music_id != music_id)
                 .all()
             )

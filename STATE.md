@@ -1,8 +1,34 @@
 # Project Status - Audio-Based Music Recommender
 
-**Last Updated**: 2026-07-10
+**Last Updated**: 2026-07-12
 
 ---
+
+## 0.6. Folders + Slug Routing 📁
+
+Added user-owned library folders and human-readable per-user slugs for
+shareable, stable links.  Backend + frontend + migration shipped together.
+
+| # | Area | Change | Resolution |
+|---|------|--------|-----------|
+| 1 | Model | No way to group a user's tracks. | New `Folder` model (`app/models/folder.py`): `id`, `name`, `user_id` (FK→users, CASCADE), `created_at`, unique `(user_id, name)`. `Music.folder_id` FK→folders ON DELETE SET NULL (NULL = "Uncategorized"). |
+| 2 | Model | Links weren't human-readable. | `Music.slug` (String 255), assigned on creation from `artist`+`title`. Partial **unique** index `ix_music_user_slug` on `(user_id, slug)` (NULLs allowed) so a user may own many uncategorized tracks but never two sharing a slug. |
+| 3 | Slugs | Needed collision-safe generation + id/slug resolution. | `app/utils/slug.py`: `generate_unique_slug` (base slug + random `-<hex>` suffix on collision) and `resolve_music` (accepts int id OR per-user slug, enforces ownership, 404-before-403). |
+| 4 | Endpoints | Upload/Spotify-create didn't set folder/slug. | `POST /api/music/upload`, `POST /api/spotify/add` now generate the slug, validate the optional `folder_id` (user-owned), and persist both. `MusicCreate`/`SpotifyAddRequest`/`MusicUpdate` expose `folder_id`; `MusicResponse` exposes `slug` + `folder_id`. |
+| 5 | Fetch routes | Only integer ids worked. | `GET /api/music/{id_or_slug}`, `GET /api/music/{id_or_slug}/stream`, `PUT /api/music/{id_or_slug}`, `DELETE /api/music/{id_or_slug}`, `POST/GET /api/analyze/{id_or_slug}`, `GET /api/recommend/{id_or_slug}` all resolve via `resolve_music`. |
+| 6 | Folders API | No folder management. | New `app/routes/folders.py`: `GET /api/folders` (with `track_count`), `POST /api/folders` (409 on dup name), `DELETE /api/folders/{id}` (unfiles tracks, ON DELETE SET NULL). `PUT /api/music/move` bulk-moves a list of ids/slugs to a folder (or `null` to unfile). |
+| 7 | Frontend | Routing used DB ids. | `App.jsx` adds `/recommendations/:musicId`. Dashboard + Upload + Analyze + Recommendations use `track.slug` for links/navigation. New `FolderSelect` component (with inline "Create new folder") used on both upload tabs. Dashboard gains a folder rail (All / Uncategorized / folders) + per-track and bulk "Move to folder" menus + create/delete folder dialogs. |
+| 8 | Migration | Schema drift. | `alembic/versions/014_folders_and_slugs.py` — creates `folders`, adds `music.folder_id` (FK, SET NULL) + `music.slug`, plus the partial unique index and `ix_music_folder`. env.py now imports `Folder` for autogenerate. |
+
+**Tests**: full backend suite 222 passed, 1 pre-existing network-flaky
+failure in `test_spotify.py::test_add_spotify_creates_ready_track` (fails on
+the unmodified baseline too — iTunes fallback returns 0 results). Frontend
+`npm run build` is green; new lint errors 0.
+
+**Migration**: `014_folders_and_slugs.py` (run `alembic upgrade head`).
+`ruff check app/` still reports the pre-existing `Optional`-vs-`X | None`
+style warnings (379) that exist across the whole codebase — no new logic
+errors introduced.
 
 ## 0.4. Week 4 — Genre-Aware Recommendations (W4-1) 🎚️
 

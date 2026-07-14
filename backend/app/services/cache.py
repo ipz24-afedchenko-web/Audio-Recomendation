@@ -46,6 +46,58 @@ def cache_get(key: str) -> Optional[Any]:
     return None
 
 
+def flush_user_recommendation_cache(user_id: int) -> None:
+    """Delete all recommendation cache entries for a user.
+
+    Called from the delete-music route so stale recommendations (which
+    may reference the deleted track) are not served after a deletion.
+    No-op when Redis is not available.
+    """
+    client = _get_redis()
+    if client is None:
+        return
+    try:
+        pattern = f"rec:{user_id}:*"
+        cursor = 0
+        deleted = 0
+        while True:
+            cursor, keys = client.scan(cursor=cursor, match=pattern, count=100)
+            if keys:
+                deleted += client.delete(*keys)
+            if cursor == 0:
+                break
+        if deleted:
+            logger.info("Flushed %d recommendation cache keys for user %d", deleted, user_id)
+    except Exception as e:
+        logger.warning("Cache flush error for user %d: %s", user_id, str(e))
+
+
+def flush_all_recommendation_cache() -> None:
+    """Delete ALL recommendation cache entries across all users.
+
+    Called from the delete-music route so that if a deleted track was
+    recommended to other users, their cached responses are also
+    invalidated.  Falls back gracefully when Redis is unavailable.
+    """
+    client = _get_redis()
+    if client is None:
+        return
+    try:
+        pattern = "rec:*"
+        cursor = 0
+        deleted = 0
+        while True:
+            cursor, keys = client.scan(cursor=cursor, match=pattern, count=200)
+            if keys:
+                deleted += client.delete(*keys)
+            if cursor == 0:
+                break
+        if deleted:
+            logger.info("Flushed %d global recommendation cache keys", deleted)
+    except Exception as e:
+        logger.warning("Global cache flush error: %s", str(e))
+
+
 def cache_set(key: str, value: Any, ttl: int = 300) -> None:
     client = _get_redis()
     if client is None:

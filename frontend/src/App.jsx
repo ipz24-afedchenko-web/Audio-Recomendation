@@ -44,6 +44,7 @@ export default function App() {
                     <Route path="/bulk-upload" element={<BulkUploadPage />} />
                     <Route path="/analyze/:musicId" element={<AnalyzePage />} />
                     <Route path="/recommendations" element={<RecommendationsPage />} />
+                    <Route path="/recommendations/:musicId" element={<RecommendationsPage />} />
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route
                       path="/admin"

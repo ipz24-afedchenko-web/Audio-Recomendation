@@ -10,15 +10,15 @@ import {
   Spinner,
   FileAudio,
   MagnifyingGlass,
-  Link as LinkIcon,
 } from "@phosphor-icons/react";
-import { musicAPI } from "../services/api";
+import { musicAPI, folderAPI } from "../services/api";
 import { useToast } from "../components/ui/toast";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card } from "../components/ui/card";
+import FolderSelect from "../components/FolderSelect";
 
 function FileDropzone({ file, onFile, dragActive, setDragActive }) {
   const { t } = useTranslation();
@@ -70,12 +70,13 @@ function FileDropzone({ file, onFile, dragActive, setDragActive }) {
   );
 }
 
-function FileTab() {
+function FileTab({ folders, onFoldersChange }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { toast } = useToast();
   const [file, setFile] = useState(null);
   const [dragActive, setDragActive] = useState(false);
+  const [folderId, setFolderId] = useState(null);
   const [form, setForm] = useState({ title: "", artist: "", album: "", genre: "", spotifyTrackId: "", spotifyExternalUri: "", coverUrl: "" });
   const [uploading, setUploading] = useState(false);
   const [autoTagging, setAutoTagging] = useState(false);
@@ -133,8 +134,11 @@ function FileTab() {
         fd.append("external_id", form.spotifyTrackId);
         fd.append("external_uri", form.spotifyExternalUri || `spotify:track:${form.spotifyTrackId}`);
       }
+      if (folderId != null) {
+        fd.append("folder_id", String(folderId));
+      }
       const res = await musicAPI.upload(fd);
-      const id = res.data?.id;
+      const id = res.data?.slug || res.data?.id;
       toast({ title: t("upload.uploadSuccess") });
       if (id) {
         musicAPI.waitForAnalysis(id, { onUpdate: () => {} }).catch(() => {});
@@ -174,6 +178,16 @@ function FileTab() {
         </div>
       </div>
 
+      <div className="space-y-2">
+        <Label>{t("upload.selectFolder") || "Select folder"}</Label>
+        <FolderSelect
+          value={folderId}
+          onChange={setFolderId}
+          folders={folders}
+          onFoldersChange={onFoldersChange}
+        />
+      </div>
+
       {form.spotifyTrackId && (
         <div className="flex items-center gap-2 rounded-lg border border-border bg-card p-3 text-sm">
           <SpotifyLogo className="h-4 w-4 text-[#1DB954]" weight="fill" />
@@ -209,14 +223,22 @@ function FileTab() {
   );
 }
 
-function SpotifyTab() {
+function SpotifyTab({ folders, onFoldersChange }) {
   const { t } = useTranslation();
   const { toast } = useToast();
+
+  // --- Track search state ---
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [searching, setSearching] = useState(false);
   const [configured, setConfigured] = useState(true);
   const [adding, setAdding] = useState(null);
+  const [folderId, setFolderId] = useState(null);
+
+  // --- Playlist import state ---
+  const [playlistUrl, setPlaylistUrl] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   useEffect(() => {
     musicAPI.spotifyStatus().catch(() => setConfigured(false));
@@ -238,9 +260,9 @@ function SpotifyTab() {
   const add = async (track) => {
     setAdding(track.spotify_track_id);
     try {
-      await musicAPI.addSpotify(track.spotify_track_id);
-      toast({ title: t("common.add"), description: track.name });
-      setResults((r) => r.filter((x) => x.id !== track.id));
+      await musicAPI.addSpotify(track.spotify_track_id, folderId);
+      toast({ title: t("common.add"), description: track.title });
+      setResults((r) => r.filter((x) => x.spotify_track_id !== track.spotify_track_id));
     } catch (err) {
       if (err.response?.status === 409) toast({ variant: "destructive", title: t("upload.alreadyExists") });
       else toast({ variant: "destructive", title: t("common.error") });
@@ -249,59 +271,200 @@ function SpotifyTab() {
     }
   };
 
+  const importPlaylist = async () => {
+    if (!playlistUrl.trim()) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const res = await musicAPI.importPlaylist(playlistUrl.trim(), folderId, 2000);
+      const data = res.data;
+      setImportResult(data);
+      toast({
+        title: t("upload.importSuccess", {
+          added: data.added,
+          duplicates: data.duplicates,
+          errors: data.errors,
+        }),
+      });
+      setPlaylistUrl("");
+    } catch (err) {
+      // The backend returns a descriptive `detail` on 404 (private playlist)
+      // and 502 (Spotify API error). Surface it directly when available.
+      const detail = err.response?.data?.detail;
+      toast({
+        variant: "destructive",
+        title: t("upload.importError"),
+        description: detail || undefined,
+      });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const statusBadgeClass = (s) => {
+    if (s === "added") return "bg-emerald-500/15 text-emerald-500";
+    if (s === "duplicate") return "bg-yellow-500/15 text-yellow-600";
+    return "bg-destructive/15 text-destructive";
+  };
+
+  const statusLabel = (s) => {
+    if (s === "added") return t("upload.importResultAdded");
+    if (s === "duplicate") return t("upload.importResultDuplicate");
+    return t("upload.importResultError");
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="flex gap-2">
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder={t("upload.spotifyPlaceholder")}
-        />
-        <Button onClick={search} disabled={searching} className="gap-2 shrink-0">
-          {searching ? <Spinner className="h-4 w-4 animate-spin" /> : <MagnifyingGlass className="h-4 w-4" />}
-          {t("common.search")}
-        </Button>
-      </div>
-
-      {!configured && (
-        <div className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
-          {t("upload.connectSpotify")}
-        </div>
-      )}
-
-      {results.length === 0 && !searching && configured && (
-        <p className="text-center text-sm text-muted-foreground">{t("upload.noResults")}</p>
-      )}
-
-      <div className="space-y-2">
-        {results.map((track) => (
-          <div
-            key={track.id}
-            className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
-          >
-            <img
-              src={track.image_url}
-              alt=""
-              className="h-12 w-12 rounded-md object-cover"
-              onError={(e) => (e.currentTarget.style.display = "none")}
+    <div className="space-y-6">
+      {/* ── Playlist import section ── */}
+      <div className="space-y-3">
+        <div>
+          <p className="text-sm font-medium mb-1.5">{t("upload.playlistLabel")}</p>
+          <div className="flex gap-2">
+            <Input
+              id="playlist-url"
+              value={playlistUrl}
+              onChange={(e) => setPlaylistUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && importPlaylist()}
+              placeholder={t("upload.playlistPlaceholder")}
+              disabled={importing}
             />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{track.title}</p>
-              <p className="truncate text-xs text-muted-foreground">{track.artist}</p>
-            </div>
             <Button
-              variant="outline"
-              size="sm"
-              onClick={() => add(track)}
-              disabled={adding === track.spotify_track_id}
-              className="gap-2"
+              onClick={importPlaylist}
+              disabled={importing || !playlistUrl.trim()}
+              className="gap-2 shrink-0"
+              id="import-playlist-btn"
             >
-              {adding === track.spotify_track_id ? <Spinner className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-              {t("upload.addTrack")}
+              {importing
+                ? <Spinner className="h-4 w-4 animate-spin" />
+                : <SpotifyLogo className="h-4 w-4" weight="fill" />}
+              {importing ? t("upload.importing") : t("upload.importPlaylist")}
             </Button>
           </div>
-        ))}
+        </div>
+
+        {/* Import result summary */}
+        {importResult && (
+          <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center gap-3">
+              {importResult.playlist_image && (
+                <img
+                  src={importResult.playlist_image}
+                  alt=""
+                  className="h-12 w-12 rounded-md object-cover flex-shrink-0"
+                  onError={(e) => (e.currentTarget.style.display = "none")}
+                />
+              )}
+              <div className="min-w-0">
+                <p className="font-semibold text-sm truncate">
+                  {t("upload.importResultTitle", { name: importResult.playlist_name })}
+                </p>
+                <div className="flex gap-3 mt-0.5 text-xs text-muted-foreground">
+                  <span className="text-emerald-500 font-medium">{importResult.added} {t("upload.importResultAdded")}</span>
+                  <span className="text-yellow-600">{importResult.duplicates} {t("upload.importResultDuplicate")}</span>
+                  {importResult.errors > 0 && (
+                    <span className="text-destructive">{importResult.errors} {t("upload.importResultError")}</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Per-track breakdown — scrollable if many tracks */}
+            {importResult.tracks.length > 0 && (
+              <div className="max-h-52 overflow-y-auto space-y-1 pr-1">
+                {importResult.tracks.map((tr) => (
+                  <div
+                    key={tr.spotify_track_id}
+                    className="flex items-center justify-between gap-2 text-xs py-1 border-b border-border/50 last:border-0"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-medium truncate block">{tr.title}</span>
+                      {tr.artist && <span className="text-muted-foreground truncate block">{tr.artist}</span>}
+                    </div>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${statusBadgeClass(tr.status)}`}>
+                      {statusLabel(tr.status)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Divider ── */}
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t border-border" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-card px-2 text-muted-foreground">{t("upload.searchSpotify")}</span>
+        </div>
+      </div>
+
+      {/* ── Track search section ── */}
+      <div className="space-y-4">
+        <div className="flex gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && search()}
+            placeholder={t("upload.spotifyPlaceholder")}
+          />
+          <Button onClick={search} disabled={searching} className="gap-2 shrink-0">
+            {searching ? <Spinner className="h-4 w-4 animate-spin" /> : <MagnifyingGlass className="h-4 w-4" />}
+            {t("common.search")}
+          </Button>
+        </div>
+
+        <div className="space-y-2">
+          <Label>{t("upload.selectFolder") || "Select folder"}</Label>
+          <FolderSelect
+            value={folderId}
+            onChange={setFolderId}
+            folders={folders}
+            onFoldersChange={onFoldersChange}
+          />
+        </div>
+
+        {!configured && (
+          <div className="rounded-lg border border-border bg-card p-6 text-center text-sm text-muted-foreground">
+            {t("upload.connectSpotify")}
+          </div>
+        )}
+
+        {results.length === 0 && !searching && configured && (
+          <p className="text-center text-sm text-muted-foreground">{t("upload.noResults")}</p>
+        )}
+
+        <div className="space-y-2">
+          {results.map((track) => (
+            <div
+              key={track.spotify_track_id}
+              className="flex items-center gap-3 rounded-lg border border-border bg-card p-3"
+            >
+              <img
+                src={track.image_url}
+                alt=""
+                className="h-12 w-12 rounded-md object-cover"
+                onError={(e) => (e.currentTarget.style.display = "none")}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{track.title}</p>
+                <p className="truncate text-xs text-muted-foreground">{track.artist}</p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => add(track)}
+                disabled={adding === track.spotify_track_id}
+                className="gap-2"
+              >
+                {adding === track.spotify_track_id ? <Spinner className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                {t("upload.addTrack")}
+              </Button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -311,6 +474,11 @@ export default function UploadPage() {
   const { t } = useTranslation();
   const [params] = useSearchParams();
   const initial = params.get("tab") === "spotify" ? "spotify" : "file";
+  const [folders, setFolders] = useState([]);
+
+  useEffect(() => {
+    folderAPI.list().then((r) => setFolders(r.data || [])).catch(() => {});
+  }, []);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -333,10 +501,10 @@ export default function UploadPage() {
           </TabsList>
           <Card className="mt-4 p-6">
             <TabsContent value="file">
-              <FileTab />
+              <FileTab folders={folders} onFoldersChange={setFolders} />
             </TabsContent>
             <TabsContent value="spotify">
-              <SpotifyTab />
+              <SpotifyTab folders={folders} onFoldersChange={setFolders} />
             </TabsContent>
           </Card>
         </Tabs>

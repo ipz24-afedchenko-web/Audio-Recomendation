@@ -21,7 +21,8 @@
     "yes": "Так",
     "no": "Ні",
     "play": "Грати",
-    "pause": "Пауза"
+    "pause": "Пауза",
+    "unknown": "Невідомо"
   },
   "nav": {
     "dashboard": "Бібліотека",
@@ -82,7 +83,24 @@
     "reanalyze": "Переаналізувати",
     "searchPlaceholder": "Пошук треків, виконавців, альбомів...",
     "selectAll": "Вибрати все",
-    "deleteSelected": "Видалити вибране"
+    "deleteSelected": "Видалити вибране",
+    "all": "Все",
+    "uncategorized": "Без категорії",
+    "newFolder": "Нова папка",
+    "newFolderHint": "Групуйте схожі треки разом.",
+    "folderNamePlaceholder": "Назва папки",
+    "create": "Створити",
+    "moveToFolder": "Перемістити в папку",
+    "noFolders": "Папок ще немає",
+    "noSearchResults": "Немає треків за запитом \"{{query}}\"",
+    "folderEmpty": "Ця папка порожня",
+    "folderCreated": "Папку створено",
+    "folderExists": "Папка вже існує",
+    "folderDeleted": "Папку видалено",
+    "moved": "Переміщено",
+    "bulkDeleteConfirm": "Видалити {{count}} вибраних треків? Це не можна скасувати.",
+    "folderCardCount": "{{count}} треків",
+    "allTracks": "Всі треки"
   },
   "upload": {
     "title": "Додати музику",
@@ -109,7 +127,19 @@
     "noResults": "Треків не знайдено",
     "alreadyExists": "Цей трек уже є у вашій бібліотеці",
     "connectSpotify": "Підключіть Spotify, щоб додавати треки",
-    "linkedSpotify": "Пов'язано з треком Spotify"
+    "linkedSpotify": "Пов'язано з треком Spotify",
+    "selectFolder": "Виберіть папку",
+    "createFolderInline": "Створити нову папку…",
+    "playlistLabel": "Посилання або ID плейлиста Spotify",
+    "playlistPlaceholder": "Вставте URL плейлиста Spotify…",
+    "importPlaylist": "Імпортувати плейлист",
+    "importing": "Імпорт…",
+    "importSuccess": "Плейлист імпортовано — {{added}} додано, {{duplicates}} дублікатів, {{errors}} помилок",
+    "importError": "Не вдалося імпортувати плейлист",
+    "importResultAdded": "Додано",
+    "importResultDuplicate": "Вже в бібліотеці",
+    "importResultError": "Помилка",
+    "importResultTitle": "Імпорт завершено — \"{{name}}\""
   },
   "bulk": {
     "title": "Масове завантаження",
@@ -118,6 +148,7 @@
     "filesTable": "Файли",
     "editMetadata": "Метадані",
     "autoTagAll": "AI-теги для всіх",
+    "autoTagFailed": "{{count}} файл(и) не вдалося позначити",
     "uploadAll": "Завантажити всі",
     "uploading": "Завантаження {{done}}/{{total}}",
     "done": "Усі файли завантажено",
@@ -143,6 +174,9 @@
     "recommendations": "Отримати рекомендації",
     "noData": "Дані аналізу поки недоступні",
     "spotifyNoWaveform": "Детальний аудіо-профіль недоступний (Spotify не надав аудіо-фрагмент)"
+  },
+  "recommendations": {
+    "title": "Рекомендації"
   },
   "recommend": {
     "title": "Рекомендації",

@@ -15,6 +15,7 @@ def _fake_track(track_id="abc123"):
         "external_uri": f"spotify:track:{track_id}",
         "external_url": f"https://open.spotify.com/track/{track_id}",
         "image_url": "https://i.scdn.co/image/x",
+        "artist_ids": ["artist_1"],
     }
 
 
@@ -54,11 +55,21 @@ def spotify_client_mock():
         client.search.return_value = [_fake_track()]
         client.get_track.return_value = _fake_track()
         client.get_audio_features.return_value = _fake_features()
+        client.get_artist.return_value = {"genres": ["electronic", "pop"]}
         # Use the real mapping so the persisted AudioFeatures carry the
         # expected (approximate) values and feature_origin='spotify'.
-        client.map_to_features.return_value = SpotifyClient().map_to_features(
-            _fake_track(), _fake_features()
+        client.map_to_features.side_effect = lambda track, raw: SpotifyClient().map_to_features(
+            track, raw
         )
+        # Playlist: two distinct tracks so we can verify counts.
+        client.get_playlist.return_value = {
+            "playlist_id": "pl1",
+            "name": "Test Playlist",
+            "description": "",
+            "image_url": "https://i.scdn.co/image/pl",
+            "total": 2,
+            "tracks": [_fake_track("track_A"), _fake_track("track_B")],
+        }
         yield client
 
 
@@ -109,6 +120,7 @@ def test_add_spotify_creates_ready_track(
     assert body["external_id"] == "abc123"
     assert body["preview_url"] == "https://p.scdn.co/mp3/preview/x"
     assert body["analysis_status"] == "ready"
+    assert body["genre"] == "Electronic"
 
     # The AudioFeatures row exists with spotify origin.
     features = client.get(
@@ -209,3 +221,94 @@ def test_status_hides_tab_when_health_false(
         r = client.get("/api/spotify/status", headers=auth_headers)
         assert r.status_code == 200
         assert r.json()["enabled"] is False
+
+
+# ---------------------------------------------------------------------------
+# Playlist import tests
+# ---------------------------------------------------------------------------
+
+
+def test_import_playlist_adds_all_tracks(
+    client: TestClient, auth_headers: dict, spotify_client_mock
+):
+    """Happy path: a 2-track playlist → both tracks added, summary correct."""
+    with patch("app.routes.spotify.settings") as mock_settings:
+        mock_settings.spotify_enabled = True
+        r = client.post(
+            "/api/spotify/playlist",
+            json={"playlist_url": "https://open.spotify.com/playlist/pl1?si=xyz"},
+            headers=auth_headers,
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["playlist_name"] == "Test Playlist"
+    assert body["added"] == 2
+    assert body["duplicates"] == 0
+    assert body["errors"] == 0
+    assert len(body["tracks"]) == 2
+    assert all(t["status"] == "added" for t in body["tracks"])
+    # Each added track should carry a music_id.
+    assert all(t["music_id"] is not None for t in body["tracks"])
+
+
+def test_import_playlist_parses_bare_id(
+    client: TestClient, auth_headers: dict, spotify_client_mock
+):
+    """The endpoint accepts a bare playlist ID (no URL prefix)."""
+    with patch("app.routes.spotify.settings") as mock_settings:
+        mock_settings.spotify_enabled = True
+        r = client.post(
+            "/api/spotify/playlist",
+            json={"playlist_url": "pl1"},
+            headers=auth_headers,
+        )
+    assert r.status_code == 200, r.text
+    assert r.json()["added"] == 2
+
+
+def test_import_playlist_counts_duplicates(
+    client: TestClient, auth_headers: dict, spotify_client_mock
+):
+    """Importing the same playlist twice counts all tracks as duplicates on the 2nd import."""
+    with patch("app.routes.spotify.settings") as mock_settings:
+        mock_settings.spotify_enabled = True
+        first = client.post(
+            "/api/spotify/playlist",
+            json={"playlist_url": "pl1"},
+            headers=auth_headers,
+        )
+        assert first.status_code == 200
+        second = client.post(
+            "/api/spotify/playlist",
+            json={"playlist_url": "pl1"},
+            headers=auth_headers,
+        )
+    assert second.status_code == 200, second.text
+    body = second.json()
+    assert body["added"] == 0
+    assert body["duplicates"] == 2
+    assert body["errors"] == 0
+    assert all(t["status"] == "duplicate" for t in body["tracks"])
+
+
+def test_import_playlist_disabled_returns_503(
+    client: TestClient, auth_headers: dict
+):
+    """When Spotify is not configured, the playlist endpoint returns 503."""
+    with patch("app.routes.spotify.settings") as mock_settings:
+        mock_settings.spotify_enabled = False
+        r = client.post(
+            "/api/spotify/playlist",
+            json={"playlist_url": "pl1"},
+            headers=auth_headers,
+        )
+    assert r.status_code == 503
+
+
+def test_import_playlist_requires_auth(client: TestClient):
+    """Unauthenticated playlist import is rejected."""
+    r = client.post(
+        "/api/spotify/playlist",
+        json={"playlist_url": "https://open.spotify.com/playlist/pl1"},
+    )
+    assert r.status_code in (401, 403)

@@ -56,7 +56,7 @@ def test_put_music_updates_fields(client, db_session, auth_headers):
     )
     assert r.status_code == 200
     assert r.json()["title"] == "new"
-    assert r.json()["genre"] == "jazz"
+    assert r.json()["genre"] == "Jazz"
 
 
 def test_put_music_forbidden_for_other(client, db_session, auth_headers):
