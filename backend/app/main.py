@@ -49,17 +49,22 @@ app = FastAPI(
 # CORS middleware configuration
 # Methods are explicit (not "*") so that allow_credentials=True is well-defined
 # per the CORS spec.
+origins = [
+    "http://localhost",        # nginx (production, port 80)
+    "http://127.0.0.1",        # nginx (production, port 80)
+    "http://localhost:80",
+    "http://localhost:3000",   # React dev server (legacy)
+    "http://localhost:5173",   # Vite dev server
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173",
+]
+frontend_urls = os.getenv("FRONTEND_URLS", "")
+if frontend_urls:
+    origins.extend([url.strip() for url in frontend_urls.split(",") if url.strip()])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost",        # nginx (production, port 80)
-        "http://127.0.0.1",        # nginx (production, port 80)
-        "http://localhost:80",
-        "http://localhost:3000",   # React dev server (legacy)
-        "http://localhost:5173",   # Vite dev server
-        "http://127.0.0.1:3000",
-        "http://127.0.0.1:5173",
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=[
