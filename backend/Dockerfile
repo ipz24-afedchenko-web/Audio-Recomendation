@@ -32,4 +32,4 @@ RUN mkdir -p /app/models
 EXPOSE 8000
 
 # Run migrations and start server
-CMD ["sh", "-c", "mkdir -p /app/data/uploads /app/data/models && ln -sfn /app/data/uploads /app/uploads && ln -sfn /app/data/models /app/models && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 2"]
+CMD ["sh", "-c", "mkdir -p /app/data/uploads /app/data/models && ln -sfn /app/data/uploads /app/uploads && ln -sfn /app/data/models /app/models && alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers 1"]
