@@ -12,6 +12,7 @@ import logging
 from typing import Optional, Dict, Any
 from pathlib import Path
 
+import httpx
 import musicbrainzngs
 from google import genai
 from google.genai import types
