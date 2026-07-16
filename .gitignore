@@ -106,3 +106,6 @@ Thumbs.db
 
 # One-off report generator script
 build_report.py
+
+# Un-ignore frontend lib directory (was blocked by global Python lib/ rule)
+!frontend/src/lib/
