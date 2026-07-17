@@ -130,6 +130,15 @@ export const musicAPI = {
     }
   },
 
+  /**
+   * Create a new Spotify playlist containing the given track URIs.
+   * Requires the user to have connected their Spotify account.
+   * @param {string} name - playlist name
+   * @param {string[]} trackUris - list of spotify:track:… URIs
+   */
+  exportPlaylist: (name, trackUris) =>
+    api.post('/spotify/export-playlist', { name, track_uris: trackUris }),
+
   /* Spotify OAuth + Web Playback SDK */
   spotifyAuth: {
     login: () => api.get('/spotify/auth/login'),

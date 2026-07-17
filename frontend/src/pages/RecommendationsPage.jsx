@@ -68,6 +68,9 @@ export default function RecommendationsPage() {
   const [abStats, setAbStats] = useState(null);
   const [training, setTraining] = useState(false);
 
+  const [exporting, setExporting] = useState(false);
+  const [exportedUrl, setExportedUrl] = useState(null);
+
   const loadTracks = useCallback(async () => {
     if (!user?.id) return;
     try {
@@ -121,6 +124,43 @@ export default function RecommendationsPage() {
       toast({ variant: "destructive", title: t("common.error") });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const exportToSpotify = async () => {
+    if (!filteredRecs.length) return;
+    // Only Spotify-sourced tracks carry a spotify:track URI.
+    const uris = filteredRecs
+      .map((rec) => (rec.recommended_music || rec.music || rec).external_uri)
+      .filter((uri) => uri && uri.startsWith("spotify:track:"));
+    if (!uris.length) {
+      toast({
+        variant: "destructive",
+        title: t("recommend.exportNoSpotify") || "No Spotify tracks to export",
+      });
+      return;
+    }
+    setExporting(true);
+    setExportedUrl(null);
+    try {
+      const res = await musicAPI.exportPlaylist(
+        `${t("recommend.playlistName") || "Recommendations"} — ${new Date().toLocaleDateString()}`,
+        uris
+      );
+      setExportedUrl(res.data?.playlist_url || null);
+      toast({ title: t("recommend.exported") || "Playlist created in Spotify" });
+    } catch (e) {
+      const status = e?.response?.status;
+      const detail = e?.response?.data?.detail;
+      toast({
+        variant: "destructive",
+        title:
+          status === 403
+            ? t("recommend.exportReconnect") || "Reconnect Spotify to allow playlists"
+            : detail || t("common.error"),
+      });
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -232,6 +272,32 @@ export default function RecommendationsPage() {
           {loading ? <Spinner className="h-4 w-4 animate-spin" /> : <Sparkle className="h-4 w-4" />}
           {t("recommend.get")}
         </Button>
+        {recs.length > 0 && (
+          <Button
+            onClick={exportToSpotify}
+            disabled={exporting}
+            variant="outline"
+            className="mt-4 ml-2 gap-2"
+          >
+            {exporting ? (
+              <Spinner className="h-4 w-4 animate-spin" />
+            ) : (
+              <SpotifyLogo className="h-4 w-4 text-[#1DB954]" weight="fill" />
+            )}
+            {t("recommend.export") || "Export to Spotify"}
+          </Button>
+        )}
+        {exportedUrl && (
+          <a
+            href={exportedUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-4 ml-2 inline-flex items-center gap-1 text-sm text-[#1DB954] underline"
+          >
+            <SpotifyLogo className="h-4 w-4" weight="fill" />
+            {t("recommend.openPlaylist") || "Open playlist"}
+          </a>
+        )}
       </Card>
 
       {loading && (

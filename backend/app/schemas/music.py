@@ -131,3 +131,15 @@ class SpotifyPlaylistImportResult(BaseModel):
 class SpotifyPlayRequest(BaseModel):
     device_id: Optional[str] = None
     uri: Optional[str] = None
+
+
+class SpotifyExportRequest(BaseModel):
+    """Request body for POST /api/spotify/export-playlist.
+
+    Creates a brand-new private Spotify playlist for the connected user
+    and adds the supplied track URIs to it.  Used to push a set of
+    recommended (or otherwise selected) tracks into Spotify.
+    """
+
+    name: str
+    track_uris: list[str]

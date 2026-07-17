@@ -199,7 +199,13 @@
     "promote": "Promote best",
     "promoted": "Promoted {{algorithm}}",
     "defaultAlgo": "Default: {{algorithm}}",
-    "filterPlaceholder": "Filter results…"
+    "filterPlaceholder": "Filter results…",
+    "export": "Export to Spotify",
+    "exported": "Playlist created in Spotify",
+    "exportNoSpotify": "No Spotify tracks to export",
+    "exportReconnect": "Reconnect Spotify to allow playlists",
+    "openPlaylist": "Open playlist",
+    "playlistName": "Recommendations"
   },
   "admin": {
     "title": "Admin",

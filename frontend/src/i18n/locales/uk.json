@@ -199,7 +199,13 @@
     "promote": "Просунути найкращий",
     "promoted": "Просунуто {{algorithm}}",
     "defaultAlgo": "За замовчуванням: {{algorithm}}",
-    "filterPlaceholder": "Фільтрувати результати…"
+    "filterPlaceholder": "Фільтрувати результати…",
+    "export": "Export to Spotify",
+    "exported": "Playlist created in Spotify",
+    "exportNoSpotify": "No Spotify tracks to export",
+    "exportReconnect": "Reconnect Spotify to allow playlists",
+    "openPlaylist": "Open playlist",
+    "playlistName": "Recommendations"
   },
   "admin": {
     "title": "Адмін",
